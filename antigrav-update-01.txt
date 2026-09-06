@@ -1,0 +1,173 @@
+/grill-me
+
+PROJECT UPDATE: Student Activity Checker — Appeal & Request Flow Completion
+
+============================================================
+0. CONTEXT / HOW TO USE THIS FILE
+============================================================
+This is an UPDATE to the existing project (not a new build). Before
+doing anything:
+    1. Read CHANGELOG.md to see everything already built.
+    2. Read the original project prompt/spec you already have on file
+       for this app so you don't contradict earlier decisions
+       (Section-scoped activities, per-section Excel tabs, optional
+       Student No. password logic, soft-delete/archiving rules, etc.
+       all still apply and are NOT being changed by this update).
+    3. Apply the changes below.
+    4. Bump the version and add a new CHANGELOG.md entry per the
+       existing versioning rules — this update alone likely deserves
+       its own minor version bump (e.g., v0.X.0), since it completes
+       two previously-incomplete features.
+
+This update finishes two features that were left incomplete:
+  A. The "Request Missing Activity" flow (student side + a brand new
+     admin-side "Makeup Activity Bank")
+  B. The "Appeal" flow's evidence upload, with automatic storage
+     cleanup once an appeal is approved
+
+============================================================
+A. MAKEUP ACTIVITY BANK (NEW ADMIN FEATURE) + REQUEST FORM COMPLETION
+============================================================
+
+A.1 Problem being solved
+    Right now, when a student requests a missing activity, there's no
+    defined answer for WHAT they're actually being asked to do to make
+    it up, or HOW to submit it. That needs to come from the admin, not
+    be free-text from the student.
+
+A.2 New Admin Feature: Makeup Activity Bank
+    - Add a new admin dashboard section: "Makeup Activities"
+    - Admin can CREATE a makeup activity entry with:
+        - Title (e.g., "Makeup Quiz 1 - Alternate Version")
+        - Description (what the activity is / what it covers)
+        - Instructions for submission (free text — this is where the
+          admin will paste things like a Google Drive link, a
+          deadline, submission steps, etc.)
+        - Archived flag (boolean, default false) — so old makeup
+          activities can be retired without deleting history
+    - Admin can EDIT or ARCHIVE existing makeup activity entries
+    - IMPORTANT — LINKING: when creating/editing a makeup activity,
+      the admin must be able to CHOOSE WHICH ORIGINAL ACTIVITY (or
+      activities) this makeup activity is a valid substitute for.
+        - This is a MANY-TO-MANY relationship: one makeup activity
+          could be linked to apply to more than one original activity
+          if the admin wants (e.g., a general "Makeup Slot A" usable
+          for several different missing activities), and one original
+          activity could have multiple makeup activity options
+          available for it.
+        - Remember: original activities are SCOPED PER SECTION (see
+          existing spec). The admin should be able to link a makeup
+          activity to specific activities regardless of which section
+          they belong to, since one makeup activity might reasonably
+          apply across sections — but the picker UI should clearly
+          show which section each original activity belongs to so the
+          admin doesn't link things by mistake.
+
+A.3 Student-Side: Request Missing Activity Form (completing the flow)
+    - When a student has a missing activity and clicks to request it:
+        1. The system looks up which makeup activities (from the bank
+           in A.2) are currently linked to that specific missing
+           activity and NOT archived.
+        2. If one or more exist: show them as selectable options in
+           the request form. Each option displays its Title,
+           Description, and Instructions (so the student immediately
+           sees how to complete/submit it — no separate step needed).
+        3. If NONE exist yet for that activity: show a clear message
+           like "No makeup activity has been set up for this yet.
+           Your teacher has been notified." — and still let the
+           student submit a request (flagged as "awaiting makeup
+           activity assignment") so the admin knows demand exists for
+           one to be created.
+        4. Student selects a makeup activity option (if available) and
+           submits the request.
+    - After submission, show the student:
+        - Confirmation that the request was received
+        - The instructions for the makeup activity they selected
+          (repeated here for convenience, not just buried in the form)
+        - The current status of their request (Pending / Approved /
+          Denied / Awaiting Makeup Activity Assignment)
+
+A.4 Data model additions
+    - makeup_activities (id, title, description, instructions,
+      archived boolean default false, created_at, updated_at)
+    - activity_makeup_links (id, activity_id, makeup_activity_id)
+        -> join table for the many-to-many relationship in A.2
+    - activity_requests: add a nullable column
+      `selected_makeup_activity_id` referencing makeup_activities, so
+      we know which makeup option the student picked (null if none
+      were available yet at request time)
+
+============================================================
+B. APPEAL FORM — IMAGE EVIDENCE UPLOAD + AUTO-DELETE ON APPROVAL
+============================================================
+
+B.1 Problem being solved
+    Students need to be able to attach proof (e.g., a screenshot of a
+    submission, a photo of physical work) when appealing a wrong or
+    missing score. Supabase storage is limited, so we cannot let
+    evidence images pile up forever — once an appeal is resolved and
+    approved, the image should be deleted automatically to free up
+    space, while the rest of the appeal record stays intact for
+    historical reference.
+
+B.2 Student-Side: Appeal Form Update
+    - Add an image upload field to the existing appeal form (optional
+      or required — confirm with me which; recommend making it
+      optional in case the student has no proof, but strongly
+      encouraged in the UI copy).
+    - Restrict uploads to reasonable image types only (jpg, jpeg, png,
+      webp) and enforce a max file size limit (recommend something
+      like 5MB, but confirm with me — smaller is better given storage
+      limits).
+    - Store the file in a dedicated Supabase Storage bucket (e.g.,
+      `appeal-evidence`), and save the resulting file path/URL on the
+      appeal record.
+    - Show the student a preview of their uploaded image before they
+      submit, and let them remove/replace it before submitting.
+
+B.3 Admin-Side: Reviewing Appeals with Evidence
+    - When viewing an appeal that has an attached image, the admin
+      should be able to view it directly in the appeal detail view
+      (no separate download step).
+    - When the admin marks an appeal as APPROVED/RESOLVED (confirm
+      exact status label with existing status options already in the
+      system):
+        1. Automatically DELETE the actual image file from Supabase
+           Storage.
+        2. Clear/null out the stored image path on the appeal record
+           (or mark it as "evidence removed after approval" — pick
+           whichever is cleaner, but the raw file must not remain in
+           storage).
+        3. The rest of the appeal record (reason, notes, activity,
+           student, resolution status, timestamps) remains fully
+           intact for historical/audit purposes — only the image file
+           itself is removed.
+    - If the admin instead marks an appeal as REJECTED or leaves it
+      Pending, the image should NOT be deleted (only approval/resolved
+      triggers cleanup) — confirm this behavior matches your intent,
+      otherwise tell me which statuses should also trigger deletion.
+
+B.4 Data model additions
+    - appeals: add `evidence_image_path` (nullable text/URL) and
+      `evidence_deleted_at` (nullable timestamp, set when the
+      auto-delete runs, so we retain a record that evidence WAS
+      submitted and later cleaned up even after the file is gone)
+
+============================================================
+C. GENERAL INSTRUCTIONS FOR THIS UPDATE
+============================================================
+- Do not break or regress any existing working features (login,
+  dashboard, Excel import/section-scoping, existing appeal/request
+  status tracking) while implementing the above.
+- Ask me before finalizing anything left as "confirm with me" above
+  (required vs optional image upload, max file size, exact status
+  labels that trigger deletion).
+- Follow the existing versioning/changelog rules without exception:
+  update CHANGELOG.md with what was added here, bump the version, and
+  note the two new Supabase Storage bucket / table additions as
+  migration steps needed.
+- Keep the UI consistent with the existing design system already in
+  place — this should feel like a natural extension of the current
+  app, not a bolted-on separate section.
+
+/grill-me

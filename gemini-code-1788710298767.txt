@@ -1,0 +1,88 @@
+/grill-me
+
+# UPDATE SPECIFICATION: Appeals Image Lifecycle & Dynamic Make-Up Activity Repository
+
+## 1. Context & Objective
+The core application (React + Vite + Supabase deployed on Vercel) is built. We are refining two key workflows:
+1. **Dynamic Make-Up Activity Assignment**: Allow the instructor to maintain a repository of alternative/make-up tasks with submission instructions, map them to specific missed activities, and display them dynamically to students.
+2. **Appeals Proof Lifecycle & Auto-Purge**: Allow students to upload proof screenshots to Supabase Storage, and automatically purge those files from the storage bucket immediately upon admin resolution (approval/rejection) to strictly respect free-tier storage limits.
+
+---
+
+## 2. Detailed Functional Requirements
+
+### A. Dynamic Make-Up Activity Management
+1. **Admin Make-Up Activity Pool**:
+   - Admin interface to create and manage reusable "Make-Up Tasks" scoped by section.
+   - Each make-up task includes:
+     - `title` (e.g., "Alternative Task: ERD Case Study B")
+     - `description / prompt` (Rich text or markdown instructions)
+     - `submission_type` (e.g., 'gdrive_link', 'external_form', 'instructions_only')
+     - `submission_url` (e.g., Google Drive folder link, Google Form, or repository URL)
+     - `deadline` (Optional datetime)
+2. **Activity-to-Make-Up Mapping**:
+   - When viewing an activity, the admin can either assign a default global make-up task or link specific alternative tasks to specific regular activities (1:1 or 1:Many mapping).
+3. **Student Request Flow**:
+   - When a student clicks "Request Make-Up" for a missing activity, the modal dynamically displays:
+     - The assigned alternative task details.
+     - Specific instructions and the clickable external Google Drive / Form submission link.
+     - A confirmation form where the student provides their submission link/reference notes.
+   - The status updates to `Submitted - Awaiting Review`.
+
+### B. Appeals Storage Management & Auto-Purge Protocol
+1. **Student Proof Upload**:
+   - File upload field (restricted to images: `image/png`, `image/jpeg`, `image/webp`, max 2MB).
+   - Direct upload to a private Supabase Storage bucket (`appeal-proofs`) path: `/{section_id}/{student_id}/{submission_id}_{timestamp}.ext`.
+   - Store the bucket file path (`storage_path`) in the `appeals` record.
+2. **Admin Review & Immediate Cleanup**:
+   - Admin views the uploaded proof screenshot directly within the review drawer/modal (via signed URL).
+   - Upon admin action (**Approve** or **Reject**):
+     - The database transaction/operation calls Supabase Storage API (`supabase.storage.from('appeal-proofs').remove([storage_path])`).
+     - Nullify or update `storage_path` to `deleted` / clear `proof_url` in the `appeals` table.
+     - Ensure the file deletion is guaranteed so orphaned objects never accumulate in Supabase Storage.
+   - Include a fallback edge case: If the appeal is canceled or replaced, any unreviewed prior file is removed.
+
+---
+
+## 3. Database Schema Migrations
+
+Implement the following schema changes:
+
+1. **`makeup_tasks`** (New Table):
+   - `id` (UUID, PK)
+   - `section_id` (UUID, FK -> sections.id)
+   - `title` (TEXT)
+   - `instructions` (TEXT)
+   - `submission_url` (TEXT, nullable)
+   - `created_at` (TIMESTAMPTZ)
+
+2. **`activities`** (Alteration):
+   - Add `makeup_task_id` (UUID, FK -> makeup_tasks.id, nullable) to link a default alternative assignment.
+
+3. **`makeup_requests`** (Alteration):
+   - Add `makeup_task_id` (UUID, FK -> makeup_tasks.id)
+   - Add `student_submission_link` (TEXT, nullable)
+   - Status enum: `'pending'`, `'in_progress'`, `'submitted'`, `'approved'`, `'rejected'`
+
+4. **`appeals`** (Alteration):
+   - Add `storage_path` (TEXT, nullable) to track the exact file key in the Supabase Storage bucket.
+   - Add `proof_deleted_at` (TIMESTAMPTZ, nullable) for audit logs.
+
+---
+
+## 4. Development & Versioning Protocol (`UPDATES.md`)
+
+Before generating code:
+1. Open and read `UPDATES.md` at the project root to inspect the current version and schema state.
+2. Draft this update as the next minor/patch release in `UPDATES.md`:
+   - Document the storage bucket security policies (RLS on `storage.objects`).
+   - Document new tables and column additions.
+   - Detail the automated cleanup hook for appeal image deletion.
+
+---
+
+## 5. Execution Step
+Execute `/grill-me` now:
+- Interrogate the workflow for potential edge cases (e.g., handling failed storage deletion if an admin action succeeds, file type validation, handling students who submit appeals without images).
+- Verify Supabase RLS policies on the Storage bucket (`storage.objects`).
+- Present the step-by-step implementation plan and code changes.

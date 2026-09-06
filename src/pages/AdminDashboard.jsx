@@ -5,14 +5,16 @@ import ExcelUploader from '../components/ExcelUploader.jsx';
 import Gradebook from '../components/Gradebook.jsx';
 import AppealsManager from '../components/AppealsManager.jsx';
 import RequestsManager from '../components/RequestsManager.jsx';
+import MakeupManager from '../components/MakeupManager.jsx';
 import { getPendingCounts } from '../services/adminService.js';
 import './AdminDashboard.css';
 
 const TABS = [
-  { id: 'upload',   label: 'Upload',    icon: '📤' },
-  { id: 'gradebook',label: 'Gradebook', icon: '📊' },
-  { id: 'appeals',  label: 'Appeals',   icon: '📝', badgeKey: 'pendingAppeals' },
-  { id: 'requests', label: 'Requests',  icon: '📩', badgeKey: 'pendingRequests' },
+  { id: 'upload',    label: 'Upload',      icon: '📤' },
+  { id: 'gradebook', label: 'Gradebook',   icon: '📊' },
+  { id: 'appeals',   label: 'Appeals',     icon: '📝', badgeKey: 'pendingAppeals' },
+  { id: 'requests',  label: 'Requests',    icon: '📩', badgeKey: 'pendingRequests' },
+  { id: 'makeups',   label: 'Makeup Bank', icon: '📦' },
 ];
 
 export default function AdminDashboard() {
@@ -130,6 +132,7 @@ export default function AdminDashboard() {
           {activeTab === 'gradebook' && <Gradebook />}
           {activeTab === 'appeals'   && <AppealsManager onUpdate={loadBadges} />}
           {activeTab === 'requests'  && <RequestsManager onUpdate={loadBadges} />}
+          {activeTab === 'makeups'   && <MakeupManager />}
         </div>
       </main>
     </div>

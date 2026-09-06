@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { getMakeupRequests, updateMakeupRequest } from '../services/adminService.js';
 
-const STATUS_OPTIONS = ['pending', 'approved', 'denied'];
+const STATUS_OPTIONS = ['pending', 'approved', 'denied', 'awaiting_assignment'];
 
 export default function RequestsManager({ onUpdate }) {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('pending');
+  const [filter, setFilter] = useState('');
   const [saving, setSaving] = useState(null);
   const [error, setError] = useState('');
 
@@ -58,7 +58,7 @@ export default function RequestsManager({ onUpdate }) {
             onClick={() => setFilter(s)}
             aria-selected={filter === s}
           >
-            {s ? s.charAt(0).toUpperCase() + s.slice(1) : 'All'}
+            {s ? s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'All'}
           </button>
         ))}
       </div>
@@ -70,13 +70,14 @@ export default function RequestsManager({ onUpdate }) {
       ) : requests.length === 0 ? (
         <div className="empty-state">
           <span aria-hidden="true">✅</span>
-          <p>No {filter} make-up requests at the moment.</p>
+          <p>No {filter ? filter.replace('_', ' ') : ''} make-up requests at the moment.</p>
         </div>
       ) : (
         <div className="requests-list">
           {requests.map((req) => {
             const student  = req.students;
             const activity = req.activities;
+            const makeup   = req.makeup_activities;
 
             return (
               <div key={req.id} className="request-card">
@@ -97,6 +98,44 @@ export default function RequestsManager({ onUpdate }) {
                     <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>{activity?.title}</span>
                   </div>
 
+                  {/* Assigned makeup task */}
+                  {makeup ? (
+                    <div className="request-makeup-task">
+                      <span className="text-muted" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
+                        ASSIGNED MAKEUP TASK:
+                      </span>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--color-primary)' }}>
+                        {makeup.title}
+                      </div>
+                      <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                        {makeup.instructions}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="request-makeup-task">
+                      <span className="badge badge-missing" style={{ fontSize: '0.75rem' }}>
+                        ⚠️ No makeup task pre-linked (Awaiting assignment)
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Student submission link */}
+                  {req.student_submission_link && (
+                    <div className="request-submission-box">
+                      <span className="text-muted" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
+                        STUDENT SUBMISSION LINK:
+                      </span>
+                      <a
+                        href={req.student_submission_link.startsWith('http') ? req.student_submission_link : `https://${req.student_submission_link}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="request-sub-link"
+                      >
+                        🔗 {req.student_submission_link}
+                      </a>
+                    </div>
+                  )}
+
                   {req.student_notes && (
                     <div className="request-notes">
                       <span className="text-muted" style={{ fontSize: '0.78rem' }}>Student notes:</span>
@@ -110,7 +149,7 @@ export default function RequestsManager({ onUpdate }) {
                 </div>
 
                 <div className="request-card-actions">
-                  <span className={`badge badge-${req.status}`}>{req.status}</span>
+                  <span className={`badge badge-${req.status}`}>{req.status.replace('_', ' ')}</span>
                   <div className="flex flex-col gap-2" style={{ marginTop: 'var(--sp-2)' }}>
                     {STATUS_OPTIONS.filter((s) => s !== req.status).map((s) => (
                       <button
@@ -120,7 +159,7 @@ export default function RequestsManager({ onUpdate }) {
                         onClick={() => handleStatusUpdate(req.id, s)}
                         disabled={saving === req.id}
                       >
-                        {saving === req.id ? '…' : s.charAt(0).toUpperCase() + s.slice(1)}
+                        {saving === req.id ? '…' : s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                       </button>
                     ))}
                   </div>
@@ -179,6 +218,32 @@ export default function RequestsManager({ onUpdate }) {
           border-radius: var(--radius-sm);
           border: 1px solid var(--border-color);
         }
+        .request-makeup-task {
+          margin-top: var(--sp-2);
+          padding: var(--sp-3);
+          background: var(--bg-card-alt);
+          border-radius: var(--radius-sm);
+          border: 1px solid var(--border-color);
+        }
+        .request-submission-box {
+          margin-top: var(--sp-2);
+          padding: var(--sp-3);
+          background: #f0fdf4;
+          border-radius: var(--radius-sm);
+          border: 1px solid #bbf7d0;
+        }
+        @media (prefers-color-scheme: dark) {
+          .request-submission-box {
+            background: #14532d22;
+            border-color: #15803d;
+          }
+        }
+        .request-sub-link {
+          color: var(--color-accent);
+          font-weight: 500;
+          text-decoration: none;
+        }
+        .request-sub-link:hover { text-decoration: underline; }
         .request-card-actions {
           display: flex;
           flex-direction: column;

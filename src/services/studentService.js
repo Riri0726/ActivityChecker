@@ -61,15 +61,18 @@ export async function lookupStudent(sectionName, surname, studentNo) {
   // 5. Fetch this student's appeals
   const { data: appeals, error: appealsErr } = await supabase
     .from('appeals')
-    .select('id, activity_id, reason, notes, status, instructor_remarks, created_at')
+    .select('id, activity_id, reason, notes, storage_path, proof_deleted_at, status, instructor_remarks, created_at')
     .eq('student_id', student.id);
 
   if (appealsErr) return { error: 'Failed to load appeals.' };
 
-  // 6. Fetch this student's makeup requests
+  // 6. Fetch this student's makeup requests (with linked makeup activity details)
   const { data: makeupRequests, error: makeupErr } = await supabase
     .from('makeup_requests')
-    .select('id, activity_id, student_notes, status, created_at')
+    .select(`
+      id, activity_id, makeup_activity_id, student_notes, student_submission_link, status, created_at,
+      makeup_activities ( id, title, description, instructions )
+    `)
     .eq('student_id', student.id);
 
   if (makeupErr) return { error: 'Failed to load makeup requests.' };
@@ -84,12 +87,56 @@ export async function lookupStudent(sectionName, surname, studentNo) {
 }
 
 /**
+ * Upload an appeal proof screenshot to Supabase Storage (appeal-proofs bucket).
+ * Max size: 5MB. Allowed: image/jpeg, image/png, image/webp.
+ */
+export async function uploadAppealProof(file, sectionId, studentId) {
+  if (!file) return { error: 'No file provided.' };
+
+  const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+  if (file.size > MAX_SIZE) {
+    return { error: 'File size exceeds 5MB limit. Please upload a smaller image.' };
+  }
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    return { error: 'Only JPG, PNG, and WEBP images are supported.' };
+  }
+
+  const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${sectionId || 'unknown'}/${studentId || 'unknown'}/${Date.now()}_${cleanName}`;
+
+  const { data, error } = await supabase.storage
+    .from('appeal-proofs')
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (error) {
+    return { error: `Upload failed: ${error.message}` };
+  }
+
+  const { data: urlData } = supabase.storage
+    .from('appeal-proofs')
+    .getPublicUrl(data.path);
+
+  return { storagePath: data.path, publicUrl: urlData?.publicUrl };
+}
+
+/**
  * Submit an appeal for a specific activity.
  */
-export async function submitAppeal({ studentId, activityId, reason, notes }) {
+export async function submitAppeal({ studentId, activityId, reason, notes, storagePath }) {
   const { data, error } = await supabase
     .from('appeals')
-    .insert({ student_id: studentId, activity_id: activityId, reason, notes: notes || null })
+    .insert({
+      student_id: studentId,
+      activity_id: activityId,
+      reason,
+      notes: notes || null,
+      storage_path: storagePath || null,
+    })
     .select()
     .single();
 
@@ -100,9 +147,38 @@ export async function submitAppeal({ studentId, activityId, reason, notes }) {
 }
 
 /**
+ * Query active makeup activities linked specifically to a missing activity.
+ */
+export async function getMakeupOptionsForActivity(activityId) {
+  const { data, error } = await supabase
+    .from('activity_makeup_links')
+    .select(`
+      makeup_activity_id,
+      makeup_activities (
+        id, title, description, instructions, archived
+      )
+    `)
+    .eq('activity_id', activityId);
+
+  if (error) throw new Error(error.message);
+
+  const activeOptions = (data || [])
+    .map((item) => item.makeup_activities)
+    .filter((task) => task && !task.archived);
+
+  return activeOptions;
+}
+
+/**
  * Submit a makeup request for a missing activity.
  */
-export async function submitMakeupRequest({ studentId, activityId, studentNotes }) {
+export async function submitMakeupRequest({
+  studentId,
+  activityId,
+  makeupActivityId,
+  studentNotes,
+  studentSubmissionLink,
+}) {
   // Check if a request already exists
   const { data: existing } = await supabase
     .from('makeup_requests')
@@ -115,14 +191,23 @@ export async function submitMakeupRequest({ studentId, activityId, studentNotes 
     return { error: 'You have already submitted a request for this activity.', existing };
   }
 
+  // If no makeup task is linked yet, status is 'awaiting_assignment'
+  const initialStatus = makeupActivityId ? 'pending' : 'awaiting_assignment';
+
   const { data, error } = await supabase
     .from('makeup_requests')
     .insert({
       student_id: studentId,
       activity_id: activityId,
+      makeup_activity_id: makeupActivityId || null,
       student_notes: studentNotes || null,
+      student_submission_link: studentSubmissionLink || null,
+      status: initialStatus,
     })
-    .select()
+    .select(`
+      id, activity_id, makeup_activity_id, student_notes, student_submission_link, status, created_at,
+      makeup_activities ( id, title, description, instructions )
+    `)
     .single();
 
   if (error) return { error: error.message };

@@ -173,9 +173,16 @@ export default function StudentDashboard({
                             {/* Makeup request — only for missing */}
                             {isMissing && (
                               request ? (
-                                <span className={`badge badge-${request.status}`}>
-                                  Request: {request.status}
-                                </span>
+                                <div className="flex flex-col items-start gap-1">
+                                  <span className={`badge badge-${request.status === 'awaiting_assignment' ? 'pending' : request.status}`}>
+                                    Request: {request.status.replace('_', ' ')}
+                                  </span>
+                                  {request.makeup_activities && (
+                                    <span className="text-muted" style={{ fontSize: '0.72rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={request.makeup_activities.title}>
+                                      Task: {request.makeup_activities.title}
+                                    </span>
+                                  )}
+                                </div>
                               ) : (
                                 <button
                                   id={`makeup-btn-${act.id}`}

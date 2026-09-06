@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAppeals, updateAppeal } from '../services/adminService.js';
+import { getAppeals, updateAppeal, getProofImageUrl } from '../services/adminService.js';
 
 const STATUS_OPTIONS = ['pending', 'reviewed', 'resolved', 'rejected'];
 
@@ -132,6 +132,44 @@ export default function AppealsManager({ onUpdate }) {
                         <p className="appeal-detail-value">{appeal.notes}</p>
                       </div>
                     )}
+
+                    {/* Attached Proof Screenshot */}
+                    {appeal.storage_path && (
+                      <div className="appeal-detail-row">
+                        <span className="appeal-detail-label">Attached Proof</span>
+                        <div className="appeal-proof-preview">
+                          <a
+                            href={getProofImageUrl(appeal.storage_path)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="appeal-proof-link"
+                          >
+                            <img
+                              src={getProofImageUrl(appeal.storage_path)}
+                              alt="Proof screenshot"
+                              className="appeal-proof-img"
+                            />
+                            <span className="appeal-proof-zoom-hint">🔍 View full screenshot ↗</span>
+                          </a>
+                          <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: 6, display: 'block' }}>
+                            🛡️ Automatic cleanup: Image will be purged from storage upon approval or rejection.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Proof Purged Audit Note */}
+                    {appeal.proof_deleted_at && !appeal.storage_path && (
+                      <div className="appeal-detail-row">
+                        <span className="appeal-detail-label">Proof Storage</span>
+                        <div style={{ fontSize: '0.82rem' }}>
+                          <span className="badge badge-done" style={{ background: '#f3f4f6', color: 'var(--text-secondary)' }}>
+                            🗑️ Proof screenshot purged on resolution ({new Date(appeal.proof_deleted_at).toLocaleDateString()})
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     {appeal.instructor_remarks && (
                       <div className="appeal-detail-row">
                         <span className="appeal-detail-label">Previous Remarks</span>
@@ -249,6 +287,38 @@ export default function AppealsManager({ onUpdate }) {
           padding: var(--sp-3);
           border-radius: var(--radius-sm);
           border: 1px solid var(--border-color);
+        }
+
+        .appeal-proof-preview {
+          margin-top: 4px;
+        }
+        .appeal-proof-link {
+          display: inline-block;
+          text-decoration: none;
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-md);
+          overflow: hidden;
+          background: var(--bg-card);
+          transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+        }
+        .appeal-proof-link:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
+        }
+        .appeal-proof-img {
+          max-width: 260px;
+          max-height: 180px;
+          object-fit: cover;
+          display: block;
+        }
+        .appeal-proof-zoom-hint {
+          display: block;
+          padding: 4px 8px;
+          font-size: 0.75rem;
+          color: var(--color-primary);
+          text-align: center;
+          background: var(--bg-card-alt);
+          border-top: 1px solid var(--border-color);
         }
 
         .appeal-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }

@@ -1,14 +1,51 @@
-import { useState } from 'react';
-import { submitAppeal } from '../services/studentService.js';
+import { useState, useRef } from 'react';
+import { submitAppeal, uploadAppealProof } from '../services/studentService.js';
 
 export default function AppealForm({ student, activity, onClose, onSuccess }) {
   const [form, setForm] = useState({ reason: '', notes: '' });
+  const [file, setFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [error, setError] = useState('');
+  const fileInputRef = useRef(null);
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
     setError('');
+  };
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    setError('');
+
+    // Type check
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(selectedFile.type)) {
+      setError('Only JPG, PNG, and WEBP image files are supported.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // 5MB limit
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      setError('File exceeds 5MB maximum size. Please upload a smaller image.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setFile(selectedFile);
+    const objectUrl = URL.createObjectURL(selectedFile);
+    setPreviewUrl(objectUrl);
+  };
+
+  const handleRemoveFile = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSubmit = async (e) => {
@@ -19,17 +56,38 @@ export default function AppealForm({ student, activity, onClose, onSuccess }) {
     }
 
     setLoading(true);
+    setError('');
+
+    let storagePath = null;
+
+    // Upload image proof if attached
+    if (file) {
+      setUploadStatus('Uploading proof image…');
+      const uploadRes = await uploadAppealProof(file, student.section_id, student.id);
+      if (uploadRes.error) {
+        setError(uploadRes.error);
+        setLoading(false);
+        setUploadStatus('');
+        return;
+      }
+      storagePath = uploadRes.storagePath;
+    }
+
+    setUploadStatus('Submitting appeal…');
     const res = await submitAppeal({
-      studentId:  student.id,
-      activityId: activity.id,
-      reason:     form.reason.trim(),
-      notes:      form.notes.trim() || null,
+      studentId:   student.id,
+      activityId:  activity.id,
+      reason:      form.reason.trim(),
+      notes:       form.notes.trim() || null,
+      storagePath: storagePath || null,
     });
     setLoading(false);
+    setUploadStatus('');
 
     if (res.error) {
       setError(res.error);
     } else {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
       onSuccess(res.data);
     }
   };
@@ -77,20 +135,77 @@ export default function AppealForm({ student, activity, onClose, onSuccess }) {
             />
           </div>
 
-          <div className="form-group" style={{ marginBottom: 'var(--sp-5)' }}>
+          <div className="form-group" style={{ marginBottom: 'var(--sp-4)' }}>
             <label htmlFor="appeal-notes" className="form-label">
-              Additional Notes / Evidence <span className="text-muted">(optional)</span>
+              Additional Notes <span className="text-muted">(optional)</span>
             </label>
             <textarea
               id="appeal-notes"
               name="notes"
               className="form-textarea"
-              placeholder="Any links, screenshots, or extra details…"
+              placeholder="Any links or extra context…"
               value={form.notes}
               onChange={handleChange}
-              style={{ minHeight: 70 }}
+              style={{ minHeight: 60 }}
             />
           </div>
+
+          {/* Proof Screenshot Upload (Optional, auto-purged on resolution) */}
+          <div className="form-group" style={{ marginBottom: 'var(--sp-5)' }}>
+            <label className="form-label">
+              Proof Screenshot <span className="text-muted">(optional, max 5MB)</span>
+            </label>
+            <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: -4, marginBottom: 8 }}>
+              Upload submission receipt, LMS screenshot, or photo of work. Image is automatically purged from storage once resolved.
+            </p>
+
+            {!file ? (
+              <div
+                className="appeal-upload-drop"
+                onClick={() => fileInputRef.current?.click()}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleFileChange}
+                  className="sr-only"
+                />
+                <span aria-hidden="true" style={{ fontSize: '1.2rem' }}>📷</span>
+                <span style={{ fontSize: '0.88rem', fontWeight: 500 }}>
+                  Click to select proof screenshot (PNG, JPG, WEBP)
+                </span>
+              </div>
+            ) : (
+              <div className="appeal-file-selected">
+                <img src={previewUrl} alt="Proof preview" className="appeal-thumb-preview" />
+                <div className="appeal-file-meta">
+                  <div className="appeal-file-name">{file.name}</div>
+                  <div className="text-muted" style={{ fontSize: '0.78rem' }}>
+                    {(file.size / 1024).toFixed(1)} KB
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={handleRemoveFile}
+                    style={{ color: 'var(--color-danger)', marginTop: 4, padding: '2px 8px' }}
+                  >
+                    ✕ Remove image
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {uploadStatus && (
+            <div className="alert alert-info" style={{ marginBottom: 'var(--sp-4)' }}>
+              <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+              {uploadStatus}
+            </div>
+          )}
 
           {error && (
             <div className="alert alert-error" style={{ marginBottom: 'var(--sp-4)' }}>
@@ -109,7 +224,7 @@ export default function AppealForm({ student, activity, onClose, onSuccess }) {
               disabled={loading}
               style={{ flex: 2 }}
             >
-              {loading ? 'Submitting…' : 'Submit Appeal'}
+              {loading ? (uploadStatus || 'Submitting…') : 'Submit Appeal'}
             </button>
           </div>
         </form>
@@ -133,6 +248,52 @@ export default function AppealForm({ student, activity, onClose, onSuccess }) {
           align-items: center;
           flex-wrap: wrap;
           gap: var(--sp-2);
+        }
+
+        .appeal-upload-drop {
+          border: 1px dashed var(--border-color);
+          border-radius: var(--radius-md);
+          padding: var(--sp-4);
+          text-align: center;
+          cursor: pointer;
+          background: var(--bg-card-alt);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--sp-2);
+          transition: border-color var(--transition-fast), background var(--transition-fast);
+        }
+        .appeal-upload-drop:hover {
+          border-color: var(--color-primary);
+          background: var(--color-primary-light);
+        }
+        .appeal-file-selected {
+          display: flex;
+          align-items: center;
+          gap: var(--sp-3);
+          padding: var(--sp-3);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-md);
+          background: var(--bg-card);
+        }
+        .appeal-thumb-preview {
+          width: 64px;
+          height: 64px;
+          object-fit: cover;
+          border-radius: var(--radius-sm);
+          border: 1px solid var(--border-color);
+        }
+        .appeal-file-meta {
+          flex: 1;
+          min-width: 0;
+        }
+        .appeal-file-name {
+          font-size: 0.85rem;
+          font-weight: 500;
+          color: var(--text-primary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
       `}</style>
     </div>

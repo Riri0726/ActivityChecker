@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and Sema
 
 ---
 
+## [v0.5.0] - 2026-09-07
+
+### Added
+- **Makeup Activity Bank** (`MakeupManager.jsx`) — Central admin repository for managing alternative assignments with instructions and Google Drive links.
+- **Activity-to-Makeup Linking** — Many-to-many relationship linking makeup tasks specifically to the missing activities they substitute for across sections.
+- **Student-Side Makeup Flow** (`MakeupRequestForm.jsx`) — Dynamic selection modal presenting title, instructions, and student submission link (or "awaiting assignment" notice if not yet configured).
+- **Appeal Proof Upload** (`AppealForm.jsx`) — Optional image upload (JPG, PNG, WEBP $\le$ 5MB) with client-side preview, validation, and cancel/remove controls.
+- **Appeals Proof Auto-Purge Protocol** (`AppealsManager.jsx` & `adminService.js`) — Automated immediate cleanup of proof images from Supabase Storage upon approval (`resolved`) or rejection (`rejected`), recording `proof_deleted_at` for audit logs.
+
+### Schema / Migration
+- `makeup_activities` table (`id`, `title`, `description`, `instructions`, `archived`, `created_at`, `updated_at`)
+- `activity_makeup_links` table (`id`, `activity_id`, `makeup_activity_id`, `created_at`, `unique(activity_id, makeup_activity_id)`)
+- `makeup_requests` alterations: `makeup_activity_id`, `student_submission_link`, updated status constraint to include `awaiting_assignment`
+- `appeals` alterations: `storage_path`, `proof_deleted_at`
+- Supabase Storage bucket `appeal-proofs` with RLS policies
+
+---
+
+## [v0.4.0] - 2026-09-06
+
+### Added
+- **Gradebook Template Download** (`exportTemplate.js`) — Excel template export with sample rows and written instructions sheet.
+- **Pre-Import Excel Preview & Checker** (`FilePreview.jsx`) — Immediate client-side validation of column headers (`[MaxScore]`), identity columns, credential collision detection, and first 5-row table preview.
+- **Secured Student Portal Navigation** — Removed public `/admin` link from student lookup page.
+
+---
+
 ## [v0.3.0] - 2026-09-06
 
 ### Added

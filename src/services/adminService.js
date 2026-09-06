@@ -194,7 +194,7 @@ export async function getAppeals(filters = {}) {
   let query = supabase
     .from('appeals')
     .select(`
-      id, reason, notes, status, instructor_remarks, created_at,
+      id, reason, notes, storage_path, proof_deleted_at, status, instructor_remarks, created_at,
       students ( id, surname, first_name, student_no, section_id,
         sections ( name )
       ),
@@ -212,10 +212,46 @@ export async function getAppeals(filters = {}) {
   return data;
 }
 
+export function getProofImageUrl(storagePath) {
+  if (!storagePath) return null;
+  const { data } = supabase.storage.from('appeal-proofs').getPublicUrl(storagePath);
+  return data?.publicUrl;
+}
+
 export async function updateAppeal(appealId, { status, instructorRemarks }) {
+  // Strict free-tier preservation: auto-purge proof image on both 'resolved' (approved) and 'rejected'
+  const shouldPurge = status === 'resolved' || status === 'rejected';
+
+  const updatePayload = {
+    status,
+    instructor_remarks: instructorRemarks || null,
+  };
+
+  if (shouldPurge) {
+    // Check if appeal has a storage_path
+    const { data: appealData } = await supabase
+      .from('appeals')
+      .select('storage_path')
+      .eq('id', appealId)
+      .single();
+
+    if (appealData?.storage_path) {
+      try {
+        await supabase.storage
+          .from('appeal-proofs')
+          .remove([appealData.storage_path]);
+      } catch (storageErr) {
+        console.warn('Storage purge warning:', storageErr);
+      }
+
+      updatePayload.storage_path = null;
+      updatePayload.proof_deleted_at = new Date().toISOString();
+    }
+  }
+
   const { error } = await supabase
     .from('appeals')
-    .update({ status, instructor_remarks: instructorRemarks || null })
+    .update(updatePayload)
     .eq('id', appealId);
 
   if (error) throw new Error(`Failed to update appeal: ${error.message}`);
@@ -229,11 +265,12 @@ export async function getMakeupRequests(filters = {}) {
   let query = supabase
     .from('makeup_requests')
     .select(`
-      id, student_notes, status, created_at,
+      id, student_notes, student_submission_link, status, created_at,
       students ( id, surname, first_name, student_no, section_id,
         sections ( name )
       ),
-      activities ( id, title )
+      activities ( id, title ),
+      makeup_activities ( id, title, description, instructions )
     `)
     .order('created_at', { ascending: false });
 
@@ -251,6 +288,135 @@ export async function updateMakeupRequest(requestId, status) {
     .eq('id', requestId);
 
   if (error) throw new Error(`Failed to update makeup request: ${error.message}`);
+}
+
+// ============================================================
+// MAKEUP ACTIVITIES BANK MANAGEMENT (admin)
+// ============================================================
+
+export async function getMakeupActivities() {
+  const { data: tasks, error: tErr } = await supabase
+    .from('makeup_activities')
+    .select('id, title, description, instructions, archived, created_at, updated_at')
+    .order('created_at', { ascending: false });
+
+  if (tErr) throw new Error(`Failed to load makeup activities: ${tErr.message}`);
+
+  // Fetch links with activity details
+  const { data: links, error: lErr } = await supabase
+    .from('activity_makeup_links')
+    .select(`
+      makeup_activity_id,
+      activity_id,
+      activities (
+        id, title, max_score, section_id,
+        sections ( name )
+      )
+    `);
+
+  if (lErr) throw new Error(`Failed to load activity links: ${lErr.message}`);
+
+  const linksByTask = {};
+  for (const l of links || []) {
+    if (!linksByTask[l.makeup_activity_id]) {
+      linksByTask[l.makeup_activity_id] = [];
+    }
+    if (l.activities) {
+      linksByTask[l.makeup_activity_id].push(l.activities);
+    }
+  }
+
+  return (tasks || []).map((t) => ({
+    ...t,
+    linkedActivities: linksByTask[t.id] || [],
+  }));
+}
+
+export async function getAllActivitiesForLinking() {
+  const { data, error } = await supabase
+    .from('activities')
+    .select(`
+      id, title, max_score, section_id,
+      sections ( name )
+    `)
+    .eq('archived', false)
+    .order('title');
+
+  if (error) throw new Error(`Failed to load activities for linking: ${error.message}`);
+  return data || [];
+}
+
+export async function createMakeupActivity({ title, description, instructions, linkedActivityIds = [] }) {
+  const { data, error } = await supabase
+    .from('makeup_activities')
+    .insert({
+      title: title.trim(),
+      description: description?.trim() || null,
+      instructions: instructions.trim(),
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create makeup activity: ${error.message}`);
+
+  if (linkedActivityIds.length > 0) {
+    const linkRows = linkedActivityIds.map((actId) => ({
+      activity_id: actId,
+      makeup_activity_id: data.id,
+    }));
+    const { error: linkErr } = await supabase
+      .from('activity_makeup_links')
+      .insert(linkRows);
+
+    if (linkErr) throw new Error(`Failed to link activities: ${linkErr.message}`);
+  }
+
+  return data;
+}
+
+export async function updateMakeupActivity(id, { title, description, instructions, archived, linkedActivityIds }) {
+  const payload = {
+    updated_at: new Date().toISOString(),
+  };
+  if (title !== undefined) payload.title = title.trim();
+  if (description !== undefined) payload.description = description?.trim() || null;
+  if (instructions !== undefined) payload.instructions = instructions.trim();
+  if (archived !== undefined) payload.archived = archived;
+
+  const { error } = await supabase
+    .from('makeup_activities')
+    .update(payload)
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to update makeup activity: ${error.message}`);
+
+  if (linkedActivityIds !== undefined) {
+    await supabase
+      .from('activity_makeup_links')
+      .delete()
+      .eq('makeup_activity_id', id);
+
+    if (linkedActivityIds.length > 0) {
+      const linkRows = linkedActivityIds.map((actId) => ({
+        activity_id: actId,
+        makeup_activity_id: id,
+      }));
+      const { error: linkErr } = await supabase
+        .from('activity_makeup_links')
+        .insert(linkRows);
+
+      if (linkErr) throw new Error(`Failed to update activity links: ${linkErr.message}`);
+    }
+  }
+}
+
+export async function toggleArchiveMakeupActivity(id, archived) {
+  const { error } = await supabase
+    .from('makeup_activities')
+    .update({ archived, updated_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to toggle archive status: ${error.message}`);
 }
 
 // ============================================================
