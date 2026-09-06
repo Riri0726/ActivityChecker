@@ -1,0 +1,29 @@
+/* Admin Login page */
+.admin-login-page {
+  background: var(--bg-sidebar);
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-login-bg {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(79,110,247,0.15) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(34,197,94,0.08) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.admin-login-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-card);
+  animation: slideUp 0.3s ease;
+}
+
+.admin-login-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--sp-3);
+}

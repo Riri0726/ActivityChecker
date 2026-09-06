@@ -1,0 +1,69 @@
+/* StudentLookup page styles */
+.lookup-page {
+  position: relative;
+  overflow: hidden;
+}
+
+.lookup-bg-blob {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+.lookup-bg-blob--1 {
+  width: 500px; height: 500px;
+  background: var(--color-primary);
+  top: -100px; left: -100px;
+}
+.lookup-bg-blob--2 {
+  width: 400px; height: 400px;
+  background: var(--color-accent);
+  bottom: -80px; right: -80px;
+}
+
+.lookup-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 440px;
+  animation: slideUp 0.3s ease;
+}
+
+.lookup-hero {
+  margin-bottom: var(--sp-8);
+}
+
+.lookup-icon {
+  font-size: 3rem;
+  margin-bottom: var(--sp-3);
+  animation: pulse 2.5s ease-in-out infinite;
+}
+
+.lookup-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-2);
+}
+
+.lookup-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+.lookup-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.lookup-footer {
+  margin-top: var(--sp-6);
+  text-align: center;
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--border-color);
+}

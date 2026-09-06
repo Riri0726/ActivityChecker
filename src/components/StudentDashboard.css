@@ -1,0 +1,165 @@
+/* Student Dashboard */
+.dashboard-page {
+  min-height: 100vh;
+  padding: var(--sp-6) 0 var(--sp-12);
+}
+
+/* Header */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-8);
+  flex-wrap: wrap;
+}
+
+.student-info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex: 1;
+}
+
+.student-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.student-name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: var(--sp-1);
+}
+
+.student-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* Score Summary */
+.score-summary {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5) var(--sp-6);
+  margin-bottom: var(--sp-6);
+  box-shadow: var(--shadow-sm);
+}
+
+.score-summary__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-1);
+}
+
+.score-summary__value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.score-summary__max {
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.score-summary__pct {
+  font-size: 1rem;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin-top: var(--sp-1);
+}
+
+.score-summary__bar-wrap {
+  height: 6px;
+  background: var(--border-color);
+  border-radius: var(--radius-full);
+  margin-top: var(--sp-3);
+  overflow: hidden;
+}
+
+.score-summary__bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+  border-radius: var(--radius-full);
+  transition: width 0.8s ease;
+}
+
+/* Activities section */
+.activities-section {
+  margin-bottom: var(--sp-6);
+}
+
+.section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--sp-4);
+}
+
+/* Table row missing highlight */
+.row-missing {
+  background: rgba(245, 158, 11, 0.04);
+}
+.row-missing:hover { background: rgba(245, 158, 11, 0.08) !important; }
+
+/* Activity title */
+.act-title {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.act-max {
+  font-size: 0.8rem;
+}
+
+/* Score cell */
+.score-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.score-pct {
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* Action buttons in table */
+.act-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .dashboard-header { gap: var(--sp-3); }
+  .student-avatar { width: 44px; height: 44px; font-size: 0.9rem; }
+  .student-name { font-size: 1.1rem; }
+  .score-summary__value { font-size: 1.5rem; }
+  .act-actions { flex-direction: column; align-items: flex-start; }
+}
