@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { parseWorkbook } from '../services/excelParser.js';
 import { importParsedWorkbook } from '../services/adminService.js';
+import { downloadGradebookTemplate } from '../services/exportTemplate.js';
 
 export default function ExcelUploader({ onUploadSuccess }) {
   const [file, setFile] = useState(null);
@@ -57,11 +58,55 @@ export default function ExcelUploader({ onUploadSuccess }) {
     }
   };
 
+  const [templateSection, setTemplateSection] = useState('BSIT-3A');
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadTemplate = async () => {
+    setDownloading(true);
+    try {
+      await downloadGradebookTemplate(templateSection || 'BSIT-3A');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="uploader-wrap">
       <div className="admin-section-header">
         <h2>📤 Upload Gradebook</h2>
         <p>Upload an Excel file (.xlsx) with one sheet tab per section. Each tab must have Surname, First Name, Student No. columns followed by activity columns formatted as <code>Activity Name [MaxScore]</code>.</p>
+      </div>
+
+      {/* Template Download */}
+      <div className="template-download-box">
+        <div className="template-download-info">
+          <span className="template-download-icon" aria-hidden="true">📋</span>
+          <div>
+            <div className="template-download-title">Don't have the format yet?</div>
+            <div className="template-download-sub">
+              Download a ready-to-fill Excel template with sample data and instructions.
+            </div>
+          </div>
+        </div>
+        <div className="template-download-action">
+          <input
+            id="template-section-input"
+            type="text"
+            className="form-input"
+            placeholder="Section name (e.g. BSIT-3A)"
+            value={templateSection}
+            onChange={(e) => setTemplateSection(e.target.value)}
+            style={{ width: 180, padding: '8px 12px', fontSize: '0.85rem' }}
+          />
+          <button
+            id="download-template-btn"
+            className="btn btn-success"
+            onClick={handleDownloadTemplate}
+            disabled={downloading}
+          >
+            {downloading ? 'Generating…' : '⬇ Download Template'}
+          </button>
+        </div>
       </div>
 
       {/* Drop zone */}
@@ -225,6 +270,55 @@ export default function ExcelUploader({ onUploadSuccess }) {
           flex-wrap: wrap;
           font-size: 0.88rem;
           color: var(--text-secondary);
+        }
+
+        /* Template download box */
+        .template-download-box {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: var(--sp-5);
+          background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+          border: 1.5px solid #86efac;
+          border-radius: var(--radius-lg);
+          padding: var(--sp-5) var(--sp-6);
+          margin-bottom: var(--sp-6);
+          flex-wrap: wrap;
+        }
+        @media (prefers-color-scheme: dark) {
+          .template-download-box {
+            background: linear-gradient(135deg, #14532d22, #14532d44);
+            border-color: #166534;
+          }
+        }
+        .template-download-info {
+          display: flex;
+          align-items: center;
+          gap: var(--sp-4);
+          flex: 1;
+          min-width: 0;
+        }
+        .template-download-icon { font-size: 2rem; flex-shrink: 0; }
+        .template-download-title {
+          font-weight: 700;
+          font-size: 0.95rem;
+          color: #15803d;
+          margin-bottom: 2px;
+        }
+        .template-download-sub {
+          font-size: 0.82rem;
+          color: var(--text-secondary);
+        }
+        .template-download-action {
+          display: flex;
+          align-items: center;
+          gap: var(--sp-3);
+          flex-shrink: 0;
+          flex-wrap: wrap;
+        }
+        @media (max-width: 600px) {
+          .template-download-box { flex-direction: column; align-items: flex-start; }
+          .template-download-action { width: 100%; }
         }
       `}</style>
     </div>
