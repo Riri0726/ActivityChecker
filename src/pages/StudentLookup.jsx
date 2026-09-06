@@ -144,12 +144,6 @@ export default function StudentLookup() {
             )}
           </button>
         </form>
-
-        <div className="lookup-footer">
-          <a href="/admin" className="text-muted" style={{ fontSize: '0.82rem' }}>
-            Admin / Teacher login →
-          </a>
-        </div>
       </div>
     </div>
   );

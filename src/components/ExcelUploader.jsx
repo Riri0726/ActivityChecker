@@ -2,52 +2,76 @@ import { useState, useRef } from 'react';
 import { parseWorkbook } from '../services/excelParser.js';
 import { importParsedWorkbook } from '../services/adminService.js';
 import { downloadGradebookTemplate } from '../services/exportTemplate.js';
+import FilePreview from './FilePreview.jsx';
 
 export default function ExcelUploader({ onUploadSuccess }) {
   const [file, setFile] = useState(null);
+  const [parsing, setParsing] = useState(false);
+  const [parsedSheets, setParsedSheets] = useState(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
 
-  const handleFileChange = (e) => {
-    const f = e.target.files?.[0];
+  const processFile = async (f) => {
     if (!f) return;
     setFile(f);
     setResults(null);
     setError('');
+    setParsing(true);
+    setParsedSheets(null);
+
+    try {
+      const parsed = await parseWorkbook(f);
+      if (!parsed || parsed.length === 0) {
+        setError('No valid sheets found in the uploaded file. Ensure sheets have student columns.');
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } else {
+        setParsedSheets(parsed);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to read Excel file.');
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const f = e.target.files?.[0];
+    if (f) processFile(f);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
     if (f && (f.name.endsWith('.xlsx') || f.name.endsWith('.csv'))) {
-      setFile(f);
-      setResults(null);
-      setError('');
+      processFile(f);
     }
   };
 
-  const handleUpload = async () => {
-    if (!file) return;
+  const handleCancelPreview = () => {
+    setFile(null);
+    setParsedSheets(null);
+    setError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleConfirmImport = async () => {
+    if (!parsedSheets || parsedSheets.length === 0) return;
     setLoading(true);
     setError('');
-    setProgress('Parsing Excel file…');
+    setProgress(`Importing ${parsedSheets.length} section(s) to Supabase…`);
 
     try {
-      const parsed = await parseWorkbook(file);
-      if (!parsed || parsed.length === 0) {
-        setError('No valid sheets found in the uploaded file.');
-        setLoading(false);
-        return;
-      }
-
-      setProgress(`Importing ${parsed.length} section(s) to Supabase…`);
-      const summary = await importParsedWorkbook(parsed);
+      const summary = await importParsedWorkbook(parsedSheets);
       setResults(summary);
       setProgress('');
       setFile(null);
+      setParsedSheets(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       onUploadSuccess?.();
     } catch (err) {
@@ -109,45 +133,54 @@ export default function ExcelUploader({ onUploadSuccess }) {
         </div>
       </div>
 
-      {/* Drop zone */}
-      <div
-        className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        onClick={() => fileInputRef.current?.click()}
-        role="button"
-        tabIndex={0}
-        aria-label="Click or drag to upload Excel file"
-        onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
-      >
-        <input
-          id="excel-file-input"
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.csv"
-          onChange={handleFileChange}
-          className="sr-only"
-        />
-        {file ? (
-          <div className="drop-zone__file">
-            <span aria-hidden="true">📄</span>
-            <div>
-              <div className="drop-zone__filename">{file.name}</div>
-              <div className="text-muted" style={{ fontSize: '0.8rem' }}>
-                {(file.size / 1024).toFixed(1)} KB — Click to change
+      {/* Drop zone - shown when no preview active */}
+      {!parsedSheets && !results && (
+        <div
+          className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+          onClick={() => fileInputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          aria-label="Click or drag to upload Excel file"
+          onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+        >
+          <input
+            id="excel-file-input"
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.csv"
+            onChange={handleFileChange}
+            className="sr-only"
+          />
+          {file ? (
+            <div className="drop-zone__file">
+              <span aria-hidden="true">📄</span>
+              <div>
+                <div className="drop-zone__filename">{file.name}</div>
+                <div className="text-muted" style={{ fontSize: '0.8rem' }}>
+                  {(file.size / 1024).toFixed(1)} KB — Checking format…
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="drop-zone__prompt">
-            <span className="drop-zone__icon" aria-hidden="true">📂</span>
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Drop your Excel file here</div>
-              <div className="text-muted" style={{ fontSize: '0.85rem' }}>or click to browse — .xlsx files only</div>
+          ) : (
+            <div className="drop-zone__prompt">
+              <span className="drop-zone__icon" aria-hidden="true">📂</span>
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Drop your Excel file here</div>
+                <div className="text-muted" style={{ fontSize: '0.85rem' }}>or click to browse — .xlsx files only</div>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
+
+      {parsing && (
+        <div className="alert alert-info mt-4">
+          <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+          Validating Excel layout and columns…
+        </div>
+      )}
 
       {error && (
         <div className="alert alert-error mt-4">
@@ -162,14 +195,14 @@ export default function ExcelUploader({ onUploadSuccess }) {
         </div>
       )}
 
-      {file && !loading && (
-        <button
-          id="upload-submit-btn"
-          className="btn btn-primary mt-4"
-          onClick={handleUpload}
-        >
-          📤 Import to Database
-        </button>
+      {/* Pre-import Review & Validator */}
+      {parsedSheets && !results && (
+        <FilePreview
+          parsedSheets={parsedSheets}
+          onConfirm={handleConfirmImport}
+          onCancel={handleCancelPreview}
+          importing={loading}
+        />
       )}
 
       {/* Results summary */}
@@ -212,6 +245,17 @@ export default function ExcelUploader({ onUploadSuccess }) {
               )}
             </div>
           ))}
+          <button
+            className="btn btn-secondary mt-4"
+            onClick={() => {
+              setResults(null);
+              setFile(null);
+              setParsedSheets(null);
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}
+          >
+            📤 Upload Another Sheet
+          </button>
         </div>
       )}
 

@@ -10,7 +10,15 @@ import { deriveAccessKey } from './studentService.js';
  *   Rows 2+        = student data
  *
  * Returns:
- *   Array of { sectionName, students[], activities[], scores[], duplicates[] }
+ *   Array of { sectionName, students[], activities[], scores[], duplicates[], validation }
+ *
+ * validation = {
+ *   errors:   string[]   — critical issues that should block import
+ *   warnings: string[]   — non-critical issues the prof should fix
+ *   info:     string[]   — informational notices
+ *   hasMissingMaxScore:  boolean
+ *   previewRows:         array of first 5 student rows for display
+ * }
  */
 export async function parseWorkbook(file) {
   const buffer = await file.arrayBuffer();
@@ -19,74 +27,103 @@ export async function parseWorkbook(file) {
 
   const results = [];
 
-  workbook.eachSheet((worksheet, sheetId) => {
+  // Check for skipped sheets (e.g., Instructions sheet)
+  const SKIP_SHEET_NAMES = ['instructions', '📋 instructions', 'readme', 'notes', 'guide'];
+
+  workbook.eachSheet((worksheet) => {
     const sectionName = worksheet.name.trim();
     if (!sectionName) return;
 
+    // Skip instruction sheets
+    if (SKIP_SHEET_NAMES.includes(sectionName.toLowerCase())) return;
+
+    const errors   = [];
+    const warnings = [];
+    const info     = [];
+
     // Read all rows as arrays
     const rows = [];
-    worksheet.eachRow({ includeEmpty: false }, (row) => {
-      rows.push(row.values.slice(1)); // row.values is 1-indexed; slice(1) makes it 0-indexed
+    worksheet.eachRow({ includeEmpty: true }, (row) => {
+      rows.push(row.values.slice(1));
     });
 
-    if (rows.length < 2) return; // need at least header + 1 student
+    // Filter out completely empty rows for parsing
+    const nonEmptyRows = rows.filter((r) => r.some((c) => c !== null && c !== undefined && c !== ''));
 
-    const headerRow = rows[0].map((h) => (h ? String(h).trim() : ''));
-
-    // Identify identity column indices (case-insensitive)
-    const surnameIdx    = headerRow.findIndex((h) => /^surname$/i.test(h));
-    const firstNameIdx  = headerRow.findIndex((h) => /^first.?name$/i.test(h));
-    const studentNoIdx  = headerRow.findIndex((h) => /^student.?no\.?$/i.test(h));
-
-    if (surnameIdx === -1 || firstNameIdx === -1) {
-      console.warn(`Sheet "${sectionName}" missing Surname or First Name column — skipped.`);
+    if (nonEmptyRows.length < 2) {
+      errors.push(`Sheet "${sectionName}" has no student data rows — only a header was found.`);
+      results.push({ sectionName, students: [], activities: [], scores: [], duplicates: [], validation: { errors, warnings, info, hasMissingMaxScore: false, previewRows: [] } });
       return;
     }
 
-    // Identity columns occupy indices up to max(surnameIdx, firstNameIdx, studentNoIdx)
-    const lastIdentityIdx = Math.max(surnameIdx, firstNameIdx, studentNoIdx === -1 ? 0 : studentNoIdx);
+    const headerRow = nonEmptyRows[0].map((h) => (h ? String(h).trim() : ''));
 
-    // Parse activity columns (everything after the last identity column)
+    // ── Identity column detection ─────────────────────────────
+    const surnameIdx   = headerRow.findIndex((h) => /^surname$/i.test(h));
+    const firstNameIdx = headerRow.findIndex((h) => /^first.?name$/i.test(h));
+    const studentNoIdx = headerRow.findIndex((h) => /^student.?no\.?$/i.test(h));
+
+    if (surnameIdx === -1) errors.push('Missing required column: "Surname"');
+    if (firstNameIdx === -1) errors.push('Missing required column: "First Name"');
+    if (studentNoIdx === -1) warnings.push('"Student No." column not found — students without a student number will use surname-only login.');
+
+    if (surnameIdx === -1 || firstNameIdx === -1) {
+      results.push({ sectionName, students: [], activities: [], scores: [], duplicates: [], validation: { errors, warnings, info, hasMissingMaxScore: false, previewRows: [] } });
+      return;
+    }
+
+    const lastIdentityIdx = Math.max(surnameIdx, firstNameIdx, studentNoIdx === -1 ? 0 : studentNoIdx);
+    const activityColCount = headerRow.slice(lastIdentityIdx + 1).filter(Boolean).length;
+
+    if (activityColCount === 0) {
+      errors.push('No activity columns found after the identity columns. Add columns like "Quiz 1 [50]".');
+    }
+
+    // ── Activity column validation ────────────────────────────
     const activities = [];
+    let hasMissingMaxScore = false;
+
     for (let i = lastIdentityIdx + 1; i < headerRow.length; i++) {
       const header = headerRow[i];
       if (!header) continue;
 
-      // Parse "Title [MaxScore]" format
       const match = header.match(/^(.+?)\s*\[(\d+(?:\.\d+)?)\]\s*$/);
       const title    = match ? match[1].trim() : header;
       const maxScore = match ? parseFloat(match[2]) : 0;
 
-      activities.push({ title, maxScore, orderIndex: i - lastIdentityIdx - 1, colIndex: i });
+      if (!match) {
+        hasMissingMaxScore = true;
+        warnings.push(`Column "${header}" is missing [MaxScore]. Rename it to "${header} [50]" (or your actual max). Score percentage will show as 0%.`);
+      }
+
+      activities.push({ title, maxScore, orderIndex: i - lastIdentityIdx - 1, colIndex: i, hasMaxScore: !!match, rawHeader: header });
     }
 
-    // Parse student rows
-    const students = [];
-    const scores   = [];
-    const accessKeysSeen = new Map(); // accessKey -> rowNumber
+    // ── Student row parsing ───────────────────────────────────
+    const students   = [];
+    const scores     = [];
+    const accessKeysSeen = new Map();
     const duplicates = [];
+    let invalidScoreCount = 0;
+    let missingScoreCount = 0;
 
-    for (let r = 1; r < rows.length; r++) {
-      const row = rows[r];
+    for (let r = 1; r < nonEmptyRows.length; r++) {
+      const row = nonEmptyRows[r];
       const surname   = row[surnameIdx]   ? String(row[surnameIdx]).trim()   : '';
       const firstName = row[firstNameIdx] ? String(row[firstNameIdx]).trim() : '';
       const studentNo = (studentNoIdx !== -1 && row[studentNoIdx])
         ? String(row[studentNoIdx]).trim()
         : null;
 
-      if (!surname && !firstName) continue; // skip truly empty rows
+      if (!surname && !firstName) continue;
 
       const accessKey = deriveAccessKey(surname, studentNo);
 
-      // Duplicate credential check
       if (accessKeysSeen.has(accessKey)) {
         duplicates.push({
           row: r + 1,
           conflictsWith: accessKeysSeen.get(accessKey) + 1,
-          surname,
-          firstName,
-          studentNo,
-          accessKey,
+          surname, firstName, studentNo, accessKey,
         });
       } else {
         accessKeysSeen.set(accessKey, r);
@@ -94,24 +131,60 @@ export async function parseWorkbook(file) {
 
       students.push({ surname, firstName, studentNo, accessKey });
 
-      // Parse scores for this student
       const studentScores = [];
       for (const act of activities) {
         const cellVal = row[act.colIndex];
-        const isBlank = cellVal === null || cellVal === undefined || cellVal === '';
-        const score   = isBlank ? null : parseFloat(String(cellVal));
+        const isBlank = cellVal === null || cellVal === undefined || String(cellVal).trim() === '';
+        const numVal  = isBlank ? null : parseFloat(String(cellVal));
+        const isNonNumeric = !isBlank && isNaN(numVal);
+
+        if (isNonNumeric) invalidScoreCount++;
+        if (isBlank) missingScoreCount++;
 
         studentScores.push({
           activityTitle: act.title,
-          score:  isBlank ? null : (isNaN(score) ? null : score),
+          score:  isBlank ? null : (isNaN(numVal) ? null : numVal),
           status: isBlank ? 'missing' : 'done',
+          isBlank,
+          isNonNumeric,
+          rawValue: isBlank ? '' : String(cellVal),
         });
       }
       scores.push({ accessKey, studentScores });
     }
 
-    results.push({ sectionName, students, activities, scores, duplicates });
+    // ── Summary info messages ─────────────────────────────────
+    info.push(`${students.length} student${students.length !== 1 ? 's' : ''} found`);
+    info.push(`${activities.length} activit${activities.length !== 1 ? 'ies' : 'y'} found`);
+
+    const missingPct = students.length > 0 && activities.length > 0
+      ? Math.round((missingScoreCount / (students.length * activities.length)) * 100)
+      : 0;
+    info.push(`${missingScoreCount} missing score${missingScoreCount !== 1 ? 's' : ''} (${missingPct}% of total cells)`);
+
+    if (invalidScoreCount > 0) {
+      warnings.push(`${invalidScoreCount} cell${invalidScoreCount !== 1 ? 's' : ''} contain non-numeric values (not blank, not a number) — these will be treated as Missing.`);
+    }
+    if (duplicates.length > 0) {
+      warnings.push(`${duplicates.length} duplicate login credential${duplicates.length !== 1 ? 's' : ''} detected — students may not be able to log in uniquely.`);
+    }
+
+    // ── Build preview rows (first 5 students) ─────────────────
+    const previewRows = students.slice(0, 5).map((s, i) => ({
+      ...s,
+      scores: scores[i]?.studentScores ?? [],
+    }));
+
+    results.push({
+      sectionName,
+      students,
+      activities,
+      scores,
+      duplicates,
+      validation: { errors, warnings, info, hasMissingMaxScore, previewRows },
+    });
   });
 
   return results;
 }
+
