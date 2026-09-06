@@ -1,6 +1,8 @@
 # Student Activity Checker
 
-**Current Version: v0.1.0**
+**Current Version: v0.3.0**
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Riri0726/ActivityChecker)
 
 A web portal that lets students check their activity scores, appeal wrong scores, and request missing activity make-ups. Teachers (admins) manage everything through Excel uploads and an in-app gradebook.
 
