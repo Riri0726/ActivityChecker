@@ -1,10 +1,13 @@
 import { useState, useRef } from 'react';
+import { supabase } from '../services/supabase.js';
 import { parseWorkbook } from '../services/excelParser.js';
 import { importParsedWorkbook } from '../services/adminService.js';
 import { downloadGradebookTemplate } from '../services/exportTemplate.js';
 import FilePreview from './FilePreview.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 export default function ExcelUploader({ onUploadSuccess }) {
+  const { selectedSubjectId, subjects, adminProfile } = useAuth();
   const [file, setFile] = useState(null);
   const [parsing, setParsing] = useState(false);
   const [parsedSheets, setParsedSheets] = useState(null);
@@ -13,6 +16,107 @@ export default function ExcelUploader({ onUploadSuccess }) {
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
+
+  /**
+   * Compute live diff against Supabase for visual preview before import
+   */
+  const computeWorkbookDiff = async (sheets) => {
+    for (const sheet of sheets) {
+      const { sectionName, students, activities, scores } = sheet;
+
+      const { data: section } = await supabase
+        .from('sections')
+        .select('id')
+        .eq('name', sectionName)
+        .maybeSingle();
+
+      if (!section) {
+        sheet.diff = {
+          addedStudents: students,
+          modifiedScores: [],
+          unchangedCount: 0,
+          archivedActivities: [],
+        };
+        continue;
+      }
+
+      // Fetch existing students in DB
+      const { data: dbStudents } = await supabase
+        .from('students')
+        .select('id, access_key')
+        .eq('section_id', section.id);
+
+      const dbStudentMap = new Map();
+      (dbStudents || []).forEach((s) => dbStudentMap.set(s.access_key, s.id));
+
+      // Fetch existing activities in DB
+      const { data: dbActivities } = await supabase
+        .from('activities')
+        .select('id, title')
+        .eq('section_id', section.id)
+        .eq('archived', false);
+
+      const dbActMap = new Map();
+      (dbActivities || []).forEach((a) => dbActMap.set(a.title.toLowerCase().trim(), a.id));
+
+      const uploadedTitlesSet = new Set(activities.map((a) => a.title.toLowerCase().trim()));
+      const archivedActs = (dbActivities || []).filter((a) => !uploadedTitlesSet.has(a.title.toLowerCase().trim()));
+
+      // Fetch existing scores in DB
+      const studentIds = Array.from(dbStudentMap.values());
+      const dbScoresMap = new Map();
+      if (studentIds.length > 0) {
+        const { data: dbScores } = await supabase
+          .from('scores')
+          .select('student_id, activity_id, score, status')
+          .in('student_id', studentIds);
+
+        (dbScores || []).forEach((sc) => {
+          dbScoresMap.set(`${sc.student_id}_${sc.activity_id}`, sc);
+        });
+      }
+
+      const addedStudents = [];
+      const modifiedScores = [];
+      let unchangedCount = 0;
+
+      for (let i = 0; i < students.length; i++) {
+        const st = students[i];
+        const dbStudentId = dbStudentMap.get(st.accessKey);
+        if (!dbStudentId) {
+          addedStudents.push(st);
+        }
+
+        const rowScores = scores[i]?.studentScores || [];
+        for (const sc of rowScores) {
+          const actId = dbActMap.get(sc.activityTitle.toLowerCase().trim());
+          if (!dbStudentId || !actId) continue;
+
+          const existingSc = dbScoresMap.get(`${dbStudentId}_${actId}`);
+          const newScoreVal = sc.score;
+          const oldScoreVal = existingSc ? existingSc.score : null;
+
+          if (existingSc && oldScoreVal === newScoreVal) {
+            unchangedCount++;
+          } else if (newScoreVal !== null || existingSc) {
+            modifiedScores.push({
+              accessKey: st.accessKey,
+              activityTitle: sc.activityTitle,
+              oldScore: oldScoreVal,
+              newScore: newScoreVal,
+            });
+          }
+        }
+      }
+
+      sheet.diff = {
+        addedStudents,
+        modifiedScores,
+        unchangedCount,
+        archivedActivities: archivedActs,
+      };
+    }
+  };
 
   const processFile = async (f) => {
     if (!f) return;
@@ -29,6 +133,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
       } else {
+        await computeWorkbookDiff(parsed);
         setParsedSheets(parsed);
       }
     } catch (err) {
@@ -67,7 +172,11 @@ export default function ExcelUploader({ onUploadSuccess }) {
     setProgress(`Importing ${parsedSheets.length} section(s) to Supabase…`);
 
     try {
-      const summary = await importParsedWorkbook(parsedSheets);
+      const summary = await importParsedWorkbook(
+        parsedSheets,
+        selectedSubjectId || null,
+        adminProfile?.id || null
+      );
       setResults(summary);
       setProgress('');
       setFile(null);
@@ -94,11 +203,20 @@ export default function ExcelUploader({ onUploadSuccess }) {
     }
   };
 
+  const activeSubject = subjects.find((s) => s.id === selectedSubjectId);
+
   return (
     <div className="uploader-wrap">
       <div className="admin-section-header">
         <h2>📤 Upload Gradebook</h2>
-        <p>Upload an Excel file (.xlsx) with one sheet tab per section. Each tab must have Surname, First Name, Student No. columns followed by activity columns formatted as <code>Activity Name [MaxScore]</code>.</p>
+        <p>
+          Upload an Excel file (.xlsx) with one sheet tab per section.
+          {activeSubject && (
+            <span style={{ marginLeft: '6px', fontWeight: 600, color: 'var(--color-primary)' }}>
+              Assigned Course: {activeSubject.code} ({activeSubject.name})
+            </span>
+          )}
+        </p>
       </div>
 
       {/* Template Download */}
@@ -159,7 +277,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
               <div>
                 <div className="drop-zone__filename">{file.name}</div>
                 <div className="text-muted" style={{ fontSize: '0.8rem' }}>
-                  {(file.size / 1024).toFixed(1)} KB — Checking format…
+                  {(file.size / 1024).toFixed(1)} KB — Comparing against database…
                 </div>
               </div>
             </div>
@@ -176,26 +294,20 @@ export default function ExcelUploader({ onUploadSuccess }) {
       )}
 
       {parsing && (
-        <div className="alert alert-info mt-4">
+        <div className="alert alert-info mt-4" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-          Validating Excel layout and columns…
+          <span>Parsing sheets and computing visual diff against existing records…</span>
         </div>
       )}
 
       {error && (
-        <div className="alert alert-error mt-4">
-          <span>⚠️</span> {error}
+        <div className="alert alert-error mt-4" role="alert">
+          <span>⚠️</span>
+          <span>{error}</span>
         </div>
       )}
 
-      {progress && (
-        <div className="alert alert-info mt-4">
-          <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-          {progress}
-        </div>
-      )}
-
-      {/* Pre-import Review & Validator */}
+      {/* Visual Diff Preview Modal / Component */}
       {parsedSheets && !results && (
         <FilePreview
           parsedSheets={parsedSheets}
@@ -205,166 +317,49 @@ export default function ExcelUploader({ onUploadSuccess }) {
         />
       )}
 
-      {/* Results summary */}
-      {results && (
-        <div className="upload-results mt-6">
-          <h3 style={{ marginBottom: 'var(--sp-4)', fontSize: '1rem' }}>
-            ✅ Upload Complete
-          </h3>
-          {results.map((r, i) => (
-            <div key={i} className="upload-result-card">
-              <div className="upload-result-section">{r.sectionName}</div>
-              <div className="upload-result-stats">
-                <span>👤 {r.studentsProcessed} students</span>
-                <span>📋 {r.activitiesProcessed} activities</span>
-                {r.archivedCount > 0 && (
-                  <span className="text-muted">🗂 {r.archivedCount} archived</span>
-                )}
-              </div>
-
-              {/* Duplicate warnings */}
-              {r.duplicates?.length > 0 && (
-                <div className="alert alert-warning" style={{ marginTop: 'var(--sp-3)' }}>
-                  <div>
-                    <strong>⚠️ Duplicate credentials detected ({r.duplicates.length})</strong>
-                    <p style={{ marginTop: 4, marginBottom: 8 }}>
-                      The following students would share the same login credentials.
-                      Add or correct their Student No. to disambiguate.
-                    </p>
-                    <ul style={{ paddingLeft: 20, fontSize: '0.85rem' }}>
-                      {r.duplicates.map((d, di) => (
-                        <li key={di}>
-                          Row {d.row}: <strong>{d.firstName} {d.surname}</strong>
-                          {d.studentNo ? ` (No: ${d.studentNo})` : ' (No student no.)'}
-                          {' '}— conflicts with row {d.conflictsWith}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          <button
-            className="btn btn-secondary mt-4"
-            onClick={() => {
-              setResults(null);
-              setFile(null);
-              setParsedSheets(null);
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }}
-          >
-            📤 Upload Another Sheet
-          </button>
+      {progress && (
+        <div className="alert alert-info mt-4">
+          <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+          <span>{progress}</span>
         </div>
       )}
 
-      <style>{`
-        .uploader-wrap { max-width: 680px; }
+      {/* Results banner */}
+      {results && (
+        <div className="results-card card mt-6">
+          <div className="results-header">
+            <span style={{ fontSize: '1.5rem' }}>🎉</span>
+            <div>
+              <h3>Import Complete!</h3>
+              <p className="text-muted" style={{ fontSize: '0.88rem' }}>
+                Your gradebook has been synchronized with Supabase.
+              </p>
+            </div>
+          </div>
 
-        .drop-zone {
-          border: 2px dashed var(--border-color);
-          border-radius: var(--radius-lg);
-          padding: var(--sp-10) var(--sp-8);
-          text-align: center;
-          cursor: pointer;
-          transition: border-color var(--transition-base), background var(--transition-base);
-          margin-top: var(--sp-6);
-        }
-        .drop-zone:hover, .drop-zone:focus-visible {
-          border-color: var(--color-primary);
-          background: var(--color-primary-light);
-          outline: none;
-        }
-        .drop-zone--has-file {
-          border-color: var(--color-accent);
-          background: #f0fdf4;
-        }
-        @media (prefers-color-scheme: dark) {
-          .drop-zone--has-file { background: #14532d22; }
-        }
+          <div className="results-list">
+            {results.map((r, i) => (
+              <div key={i} className="result-item">
+                <div className="result-item__title">📂 {r.sectionName}</div>
+                <div className="result-item__stats">
+                  <span>✓ {r.studentsProcessed} students</span>
+                  <span>✓ {r.activitiesProcessed} activities</span>
+                  {r.archivedCount > 0 && (
+                    <span className="text-muted">({r.archivedCount} archived)</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
 
-        .drop-zone__icon { font-size: 2.5rem; margin-bottom: var(--sp-3); display: block; }
-        .drop-zone__prompt { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); }
-        .drop-zone__file {
-          display: flex;
-          align-items: center;
-          gap: var(--sp-4);
-          font-size: 1.5rem;
-        }
-        .drop-zone__filename { font-weight: 600; font-size: 1rem; }
-
-        .upload-results { }
-        .upload-result-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          padding: var(--sp-5);
-          margin-bottom: var(--sp-3);
-        }
-        .upload-result-section {
-          font-weight: 700;
-          font-size: 1rem;
-          margin-bottom: var(--sp-2);
-          color: var(--color-primary);
-        }
-        .upload-result-stats {
-          display: flex;
-          gap: var(--sp-4);
-          flex-wrap: wrap;
-          font-size: 0.88rem;
-          color: var(--text-secondary);
-        }
-
-        /* Template download box */
-        .template-download-box {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: var(--sp-5);
-          background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-          border: 1.5px solid #86efac;
-          border-radius: var(--radius-lg);
-          padding: var(--sp-5) var(--sp-6);
-          margin-bottom: var(--sp-6);
-          flex-wrap: wrap;
-        }
-        @media (prefers-color-scheme: dark) {
-          .template-download-box {
-            background: linear-gradient(135deg, #14532d22, #14532d44);
-            border-color: #166534;
-          }
-        }
-        .template-download-info {
-          display: flex;
-          align-items: center;
-          gap: var(--sp-4);
-          flex: 1;
-          min-width: 0;
-        }
-        .template-download-icon { font-size: 2rem; flex-shrink: 0; }
-        .template-download-title {
-          font-weight: 700;
-          font-size: 0.95rem;
-          color: #15803d;
-          margin-bottom: 2px;
-        }
-        .template-download-sub {
-          font-size: 0.82rem;
-          color: var(--text-secondary);
-        }
-        .template-download-action {
-          display: flex;
-          align-items: center;
-          gap: var(--sp-3);
-          flex-shrink: 0;
-          flex-wrap: wrap;
-        }
-        @media (max-width: 600px) {
-          .template-download-box { flex-direction: column; align-items: flex-start; }
-          .template-download-action { width: 100%; }
-        }
-      `}</style>
+          <button
+            className="btn btn-secondary mt-4"
+            onClick={() => setResults(null)}
+          >
+            Upload Another File
+          </button>
+        </div>
+      )}
     </div>
   );
 }

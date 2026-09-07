@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAppeals, updateAppeal, getProofImageUrl } from '../services/adminService.js';
+import { getAppeals, updateAppealWithPurge, getProofSignedUrl } from '../services/adminService.js';
 
 const STATUS_OPTIONS = ['pending', 'reviewed', 'resolved', 'rejected'];
 
@@ -9,33 +9,64 @@ export default function AppealsManager({ onUpdate }) {
   const [filter, setFilter] = useState('pending');
   const [expanded, setExpanded] = useState(null);
   const [remarks, setRemarks] = useState({});
+  const [adjustedScores, setAdjustedScores] = useState({});
+  const [signedUrls, setSignedUrls] = useState({});
   const [saving, setSaving] = useState(null);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  useEffect(() => {
-    loadAppeals();
-  }, [filter]);
-
-  const loadAppeals = async () => {
+  const loadAppeals = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const data = await getAppeals({ status: filter || undefined });
       setAppeals(data);
+
+      const urls = {};
+      for (const a of data) {
+        if (a.storage_path) {
+          const u = await getProofSignedUrl(a.storage_path);
+          if (u) urls[a.id] = u;
+        }
+      }
+      setSignedUrls(urls);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
 
-  const handleStatusUpdate = async (appealId, newStatus) => {
+  useEffect(() => {
+    loadAppeals();
+  }, [loadAppeals]);
+
+  const handleStatusUpdate = async (appeal, newStatus) => {
+    const appealId = appeal.id;
+    const instructorRemark = remarks[appealId] || appeal.instructor_remarks || '';
+    const scoreVal = adjustedScores[appealId];
+
+    if (newStatus === 'rejected' && !instructorRemark.trim()) {
+      setError('Please provide feedback/reason when rejecting an appeal.');
+      return;
+    }
+
     setSaving(appealId);
+    setError('');
+    setSuccess('');
     try {
-      await updateAppeal(appealId, {
+      await updateAppealWithPurge(appealId, {
         status: newStatus,
-        instructorRemarks: remarks[appealId] || null,
+        instructorRemarks: instructorRemark.trim(),
+        adjustedScore: newStatus === 'resolved' && scoreVal !== undefined ? scoreVal : null,
+        studentId: appeal.students?.id,
+        activityId: appeal.activities?.id,
+        studentEmail: appeal.students?.student_no ? `${appeal.students?.student_no}@school.edu` : null,
+        studentName: `${appeal.students?.first_name} ${appeal.students?.surname}`,
+        activityTitle: appeal.activities?.title,
       });
+
+      setSuccess(`Appeal for ${appeal.students?.surname} marked as ${newStatus}. Image proof auto-purged.`);
       await loadAppeals();
       onUpdate?.();
       setExpanded(null);
@@ -48,161 +79,214 @@ export default function AppealsManager({ onUpdate }) {
 
   return (
     <div>
-      <div className="admin-section-header">
-        <h2>📝 Appeals</h2>
-        <p>Review and respond to student score disputes and "missing but submitted" claims.</p>
+      <div className="admin-section-header" style={{ marginBottom: 'var(--sp-4)' }}>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0, color: 'var(--color-heading)' }}>
+          Student Grade Appeals
+        </h2>
+        <p style={{ margin: '4px 0 0', color: 'var(--color-text-muted)', fontSize: '0.88rem' }}>
+          Disputes and "missing but submitted" claims. Screenshot proofs are strictly auto-purged upon resolution to preserve storage.
+        </p>
       </div>
 
       {/* Filter tabs */}
-      <div className="filter-tabs" role="tablist">
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: 'var(--sp-4)' }}>
         {['', ...STATUS_OPTIONS].map((s) => (
           <button
             key={s || 'all'}
-            id={`appeals-filter-${s || 'all'}`}
-            role="tab"
-            className={`filter-tab ${filter === s ? 'active' : ''}`}
+            className={`btn ${filter === s ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '0.8rem', padding: '6px 14px', borderRadius: '20px' }}
             onClick={() => { setFilter(s); setExpanded(null); }}
-            aria-selected={filter === s}
           >
             {s ? s.charAt(0).toUpperCase() + s.slice(1) : 'All'}
           </button>
         ))}
       </div>
 
-      {error && <div className="alert alert-error mb-4"><span>⚠️</span> {error}</div>}
+      {error && (
+        <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#991b1b', marginBottom: '16px', fontSize: '0.9rem' }}>
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div style={{ padding: '12px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#166534', marginBottom: '16px', fontSize: '0.9rem' }}>
+          {success}
+        </div>
+      )}
 
       {loading ? (
-        <div className="loading-center"><div className="spinner" /><span>Loading appeals…</span></div>
+        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-muted)' }}>
+          Loading appeals...
+        </div>
       ) : appeals.length === 0 ? (
-        <div className="empty-state">
-          <span aria-hidden="true">✅</span>
-          <p>No {filter} appeals at the moment.</p>
+        <div className="card text-center" style={{ padding: '40px', border: '1px dashed var(--color-border)' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '8px' }}>✅</div>
+          <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
+            No {filter} appeals found.
+          </p>
         </div>
       ) : (
-        <div className="appeals-list">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {appeals.map((appeal) => {
             const student = appeal.students;
             const activity = appeal.activities;
             const isExpanded = expanded === appeal.id;
+            const imageUrl = signedUrls[appeal.id];
+            const isPurged = !appeal.storage_path && (appeal.proof_purged_at || appeal.proof_deleted_at);
 
             return (
-              <div key={appeal.id} className={`appeal-card ${isExpanded ? 'expanded' : ''}`}>
+              <div
+                key={appeal.id}
+                className="card"
+                style={{
+                  padding: '18px',
+                  border: isExpanded ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
+                  borderRadius: '8px',
+                }}
+              >
                 <div
-                  className="appeal-card-header"
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap', gap: '10px' }}
                   onClick={() => setExpanded(isExpanded ? null : appeal.id)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === 'Enter' && setExpanded(isExpanded ? null : appeal.id)}
-                  aria-expanded={isExpanded}
                 >
-                  <div className="appeal-card-info">
-                    <div className="appeal-card-name">
-                      {student?.first_name} {student?.surname}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 600, fontSize: '1.05rem', color: 'var(--color-heading)' }}>
+                        {student?.first_name} {student?.surname}
+                      </span>
                       {student?.student_no && (
-                        <span className="text-muted" style={{ fontSize: '0.78rem', marginLeft: 6 }}>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
                           #{student.student_no}
                         </span>
                       )}
-                    </div>
-                    <div className="appeal-card-meta">
-                      <span className="badge badge-pending" style={{ fontSize: '0.72rem' }}>
+                      <span style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
                         {student?.sections?.name}
                       </span>
-                      <span className="text-muted">→</span>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>{activity?.title}</span>
+                      <span
+                        style={{
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          background: appeal.status === 'resolved' ? '#dcfce7' : appeal.status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                          color: appeal.status === 'resolved' ? '#166534' : appeal.status === 'rejected' ? '#991b1b' : '#b45309',
+                        }}
+                      >
+                        {appeal.status.toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                      Activity: <strong style={{ color: 'var(--color-text)' }}>{activity?.title}</strong> (Max: {activity?.max_score})
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`badge badge-${appeal.status}`}>{appeal.status}</span>
-                    <span className="text-muted" style={{ fontSize: '1rem' }}>
-                      {isExpanded ? '▲' : '▼'}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {isPurged && (
+                      <span style={{ fontSize: '0.72rem', background: '#f8fafc', border: '1px solid #cbd5e1', color: '#64748b', padding: '3px 8px', borderRadius: '4px' }}>
+                        🧹 Proof Auto-Purged
+                      </span>
+                    )}
+                    <span style={{ fontSize: '0.85rem', color: 'var(--color-primary)' }}>
+                      {isExpanded ? '▲ Hide Details' : '▼ Review & Action'}
                     </span>
                   </div>
                 </div>
 
                 {isExpanded && (
-                  <div className="appeal-card-body">
-                    <div className="appeal-detail-row">
-                      <span className="appeal-detail-label">Reason</span>
-                      <p className="appeal-detail-value">{appeal.reason}</p>
-                    </div>
-                    {appeal.notes && (
-                      <div className="appeal-detail-row">
-                        <span className="appeal-detail-label">Notes / Evidence</span>
-                        <p className="appeal-detail-value">{appeal.notes}</p>
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--color-border)' }}>
+                    {/* Student Reason */}
+                    <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '6px', marginBottom: '14px' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
+                        Student's Explanation:
                       </div>
-                    )}
+                      <div style={{ fontSize: '0.9rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>
+                        {appeal.reason}
+                      </div>
+                      {appeal.notes && (
+                        <div style={{ fontSize: '0.82rem', color: '#475569', marginTop: '6px' }}>
+                          Additional notes: {appeal.notes}
+                        </div>
+                      )}
+                    </div>
 
-                    {/* Attached Proof Screenshot */}
-                    {appeal.storage_path && (
-                      <div className="appeal-detail-row">
-                        <span className="appeal-detail-label">Attached Proof</span>
-                        <div className="appeal-proof-preview">
-                          <a
-                            href={getProofImageUrl(appeal.storage_path)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="appeal-proof-link"
-                          >
+                    {/* Screenshot Proof Preview */}
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                        Mandatory Screenshot Proof:
+                      </div>
+                      {imageUrl ? (
+                        <div style={{ border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden', maxWidth: '480px' }}>
+                          <a href={imageUrl} target="_blank" rel="noopener noreferrer">
                             <img
-                              src={getProofImageUrl(appeal.storage_path)}
-                              alt="Proof screenshot"
-                              className="appeal-proof-img"
+                              src={imageUrl}
+                              alt="Appeal proof"
+                              style={{ width: '100%', maxHeight: '320px', objectFit: 'contain', background: '#000' }}
                             />
-                            <span className="appeal-proof-zoom-hint">🔍 View full screenshot ↗</span>
                           </a>
-                          <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: 6, display: 'block' }}>
-                            🛡️ Automatic cleanup: Image will be purged from storage upon approval or rejection.
-                          </span>
+                          <div style={{ padding: '6px 10px', background: '#f8fafc', fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
+                            Click image to open full resolution ↗
+                          </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* Proof Purged Audit Note */}
-                    {appeal.proof_deleted_at && !appeal.storage_path && (
-                      <div className="appeal-detail-row">
-                        <span className="appeal-detail-label">Proof Storage</span>
-                        <div style={{ fontSize: '0.82rem' }}>
-                          <span className="badge badge-done" style={{ background: '#f3f4f6', color: 'var(--text-secondary)' }}>
-                            🗑️ Proof screenshot purged on resolution ({new Date(appeal.proof_deleted_at).toLocaleDateString()})
-                          </span>
+                      ) : isPurged ? (
+                        <div style={{ padding: '12px', background: '#f1f5f9', borderRadius: '6px', fontSize: '0.82rem', color: '#64748b' }}>
+                          Proof screenshot was automatically purged from storage upon resolution on{' '}
+                          {new Date(appeal.proof_purged_at || appeal.proof_deleted_at).toLocaleString()} to keep database storage free.
                         </div>
-                      </div>
-                    )}
-
-                    {appeal.instructor_remarks && (
-                      <div className="appeal-detail-row">
-                        <span className="appeal-detail-label">Previous Remarks</span>
-                        <p className="appeal-detail-value">{appeal.instructor_remarks}</p>
-                      </div>
-                    )}
-
-                    <div className="form-group" style={{ marginBottom: 'var(--sp-4)' }}>
-                      <label className="form-label" htmlFor={`remarks-${appeal.id}`}>
-                        Instructor Remarks (optional)
-                      </label>
-                      <textarea
-                        id={`remarks-${appeal.id}`}
-                        className="form-textarea"
-                        style={{ minHeight: 70 }}
-                        placeholder="Add a note for the student…"
-                        value={remarks[appeal.id] ?? appeal.instructor_remarks ?? ''}
-                        onChange={(e) => setRemarks((r) => ({ ...r, [appeal.id]: e.target.value }))}
-                      />
+                      ) : (
+                        <div style={{ padding: '12px', background: '#fef2f2', borderRadius: '6px', fontSize: '0.82rem', color: '#991b1b' }}>
+                          No image proof found.
+                        </div>
+                      )}
                     </div>
 
-                    <div className="appeal-actions">
-                      {STATUS_OPTIONS.filter((s) => s !== appeal.status).map((s) => (
-                        <button
-                          key={s}
-                          id={`appeal-${appeal.id}-set-${s}`}
-                          className={`btn btn-sm ${s === 'rejected' ? 'btn-danger' : s === 'resolved' ? 'btn-success' : 'btn-ghost'}`}
-                          onClick={() => handleStatusUpdate(appeal.id, s)}
-                          disabled={saving === appeal.id}
-                        >
-                          {saving === appeal.id ? 'Saving…' : `Mark ${s}`}
-                        </button>
-                      ))}
+                    {/* Resolution Form */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '14px', marginBottom: '16px' }}>
+                      <div>
+                        <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
+                          Adjusted Score (if approving)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          max={activity?.max_score}
+                          className="form-input"
+                          placeholder={`Max ${activity?.max_score}`}
+                          value={adjustedScores[appeal.id] ?? ''}
+                          onChange={(e) => setAdjustedScores({ ...adjustedScores, [appeal.id]: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
+                          Instructor Feedback / Remarks
+                        </label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. Verified canvas submission, full points awarded."
+                          value={remarks[appeal.id] ?? appeal.instructor_remarks ?? ''}
+                          onChange={(e) => setRemarks({ ...remarks, [appeal.id]: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ color: '#dc2626' }}
+                        onClick={() => handleStatusUpdate(appeal, 'rejected')}
+                        disabled={saving === appeal.id}
+                      >
+                        ✕ Reject Appeal
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        style={{ background: '#16a34a', borderColor: '#16a34a' }}
+                        onClick={() => handleStatusUpdate(appeal, 'resolved')}
+                        disabled={saving === appeal.id}
+                      >
+                        ✓ Resolve & Award Score
+                      </button>
                     </div>
                   </div>
                 )}
@@ -211,126 +295,6 @@ export default function AppealsManager({ onUpdate }) {
           })}
         </div>
       )}
-
-      <style>{`
-        .filter-tabs {
-          display: flex;
-          gap: var(--sp-2);
-          margin-bottom: var(--sp-5);
-          flex-wrap: wrap;
-        }
-        .filter-tab {
-          padding: 6px 16px;
-          border-radius: var(--radius-full);
-          font-size: 0.85rem;
-          font-weight: 500;
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          cursor: pointer;
-          color: var(--text-secondary);
-          transition: background var(--transition-fast), color var(--transition-fast);
-        }
-        .filter-tab:hover { background: var(--bg-card-alt); color: var(--text-primary); }
-        .filter-tab.active {
-          background: var(--color-primary);
-          color: #fff;
-          border-color: var(--color-primary);
-        }
-
-        .appeals-list { display: flex; flex-direction: column; gap: var(--sp-3); }
-
-        .appeal-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          overflow: hidden;
-          transition: box-shadow var(--transition-base);
-        }
-        .appeal-card.expanded { box-shadow: var(--shadow-md); }
-
-        .appeal-card-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: var(--sp-4) var(--sp-5);
-          cursor: pointer;
-          gap: var(--sp-3);
-        }
-        .appeal-card-header:hover { background: var(--bg-card-alt); }
-
-        .appeal-card-info { flex: 1; min-width: 0; }
-        .appeal-card-name { font-weight: 600; margin-bottom: 4px; }
-        .appeal-card-meta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-
-        .appeal-card-body {
-          padding: var(--sp-5);
-          border-top: 1px solid var(--border-color);
-          background: var(--bg-card-alt);
-          animation: slideUp 0.15s ease;
-        }
-
-        .appeal-detail-row { margin-bottom: var(--sp-4); }
-        .appeal-detail-label {
-          font-size: 0.78rem;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: var(--text-muted);
-          margin-bottom: 4px;
-          display: block;
-        }
-        .appeal-detail-value {
-          font-size: 0.9rem;
-          color: var(--text-primary);
-          line-height: 1.6;
-          background: var(--bg-card);
-          padding: var(--sp-3);
-          border-radius: var(--radius-sm);
-          border: 1px solid var(--border-color);
-        }
-
-        .appeal-proof-preview {
-          margin-top: 4px;
-        }
-        .appeal-proof-link {
-          display: inline-block;
-          text-decoration: none;
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          overflow: hidden;
-          background: var(--bg-card);
-          transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-        }
-        .appeal-proof-link:hover {
-          transform: translateY(-2px);
-          box-shadow: var(--shadow-md);
-        }
-        .appeal-proof-img {
-          max-width: 260px;
-          max-height: 180px;
-          object-fit: cover;
-          display: block;
-        }
-        .appeal-proof-zoom-hint {
-          display: block;
-          padding: 4px 8px;
-          font-size: 0.75rem;
-          color: var(--color-primary);
-          text-align: center;
-          background: var(--bg-card-alt);
-          border-top: 1px solid var(--border-color);
-        }
-
-        .appeal-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-
-        .empty-state {
-          text-align: center;
-          padding: var(--sp-12) var(--sp-8);
-          color: var(--text-muted);
-          font-size: 0.9rem;
-        }
-        .empty-state span { font-size: 2rem; display: block; margin-bottom: var(--sp-3); }
-      `}</style>
     </div>
   );
 }

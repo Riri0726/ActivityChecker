@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import AppealForm from './AppealForm.jsx';
 import MakeupRequestForm from './MakeupRequestForm.jsx';
+import { submitMakeupProofLink } from '../services/studentService.js';
 import './StudentDashboard.css';
 
 function calcPercentage(score, maxScore) {
@@ -45,14 +46,45 @@ function ScoreSummary({ activities, scores }) {
 export default function StudentDashboard({
   student, activities, scores, appeals, makeupRequests, onBack
 }) {
-  const [appealTarget, setAppealTarget] = useState(null);   // activity to appeal
-  const [makeupTarget, setMakeupTarget] = useState(null);   // activity to request makeup
+  const [appealTarget, setAppealTarget] = useState(null);
+  const [makeupTarget, setMakeupTarget] = useState(null);
+  const [viewingRequest, setViewingRequest] = useState(null); // request with unlocked instructions
+  const [turnInLink, setTurnInLink] = useState('');
+  const [turnInLoading, setTurnInLoading] = useState(false);
+  const [turnInError, setTurnInError] = useState('');
   const [localAppeals, setLocalAppeals] = useState(appeals ?? []);
   const [localRequests, setLocalRequests] = useState(makeupRequests ?? []);
 
   const getScore = (actId) => scores.find((s) => s.activity_id === actId);
   const getAppeal = (actId) => localAppeals.find((a) => a.activity_id === actId);
   const getRequest = (actId) => localRequests.find((r) => r.activity_id === actId);
+
+  const handleTurnInSubmit = async (e) => {
+    e.preventDefault();
+    if (!turnInLink.trim()) {
+      setTurnInError('Please provide your deliverable link or Google Drive URL.');
+      return;
+    }
+
+    setTurnInLoading(true);
+    setTurnInError('');
+    try {
+      const res = await submitMakeupProofLink(viewingRequest.id, turnInLink.trim());
+      if (res.error) {
+        setTurnInError(res.error);
+      } else {
+        setLocalRequests((prev) =>
+          prev.map((r) => (r.id === viewingRequest.id ? { ...r, ...res.data, status: 'submitted' } : r))
+        );
+        setViewingRequest(null);
+        setTurnInLink('');
+      }
+    } catch (err) {
+      setTurnInError(err.message);
+    } finally {
+      setTurnInLoading(false);
+    }
+  };
 
   return (
     <div className="dashboard-page">
@@ -112,13 +144,15 @@ export default function StudentDashboard({
                 </thead>
                 <tbody>
                   {activities.map((act, idx) => {
-                    const sc      = getScore(act.id);
-                    const appeal  = getAppeal(act.id);
+                    const sc = getScore(act.id);
+                    const appeal = getAppeal(act.id);
                     const request = getRequest(act.id);
                     const isMissing = !sc || sc.status === 'missing';
                     const pct = sc && !isMissing
                       ? calcPercentage(sc.score, act.max_score)
                       : null;
+
+                    const isClosed = act.accepting_requests === false || (act.request_deadline && new Date(act.request_deadline) < new Date());
 
                     return (
                       <tr
@@ -130,6 +164,11 @@ export default function StudentDashboard({
                           <span className="act-title">{act.title}</span>
                           {act.max_score > 0 && (
                             <span className="act-max text-muted"> / {act.max_score} pts</span>
+                          )}
+                          {act.request_deadline && (
+                            <div style={{ fontSize: '0.72rem', color: isClosed ? '#dc2626' : '#64748b', marginTop: '2px' }}>
+                              Make-up Cutoff: {new Date(act.request_deadline).toLocaleDateString()}
+                            </div>
                           )}
                         </td>
                         <td>
@@ -154,47 +193,77 @@ export default function StudentDashboard({
                           )}
                         </td>
                         <td>
-                          <div className="act-actions">
+                          <div className="act-actions" style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
                             {/* Appeal button — any activity */}
                             {appeal ? (
-                              <span className={`badge badge-${appeal.status}`}>
+                              <span className={`badge badge-${appeal.status === 'resolved' ? 'done' : appeal.status === 'rejected' ? 'missing' : 'pending'}`} style={{ fontSize: '0.75rem' }}>
                                 Appeal: {appeal.status}
                               </span>
                             ) : (
                               <button
                                 id={`appeal-btn-${act.id}`}
                                 className="btn btn-ghost btn-sm"
+                                style={{ fontSize: '0.75rem', padding: '2px 8px' }}
                                 onClick={() => setAppealTarget(act)}
                               >
-                                Appeal
+                                📝 Appeal
                               </button>
                             )}
 
-                            {/* Makeup request — only for missing */}
+                            {/* Two-Stage Make-up Status / Request */}
                             {isMissing && (
                               request ? (
-                                <div className="flex flex-col items-start gap-1">
-                                  <span className={`badge badge-${request.status === 'awaiting_assignment' ? 'pending' : request.status}`}>
-                                    Request: {request.status.replace('_', ' ')}
-                                  </span>
-                                  {request.makeup_activities && (
-                                    <span className="text-muted" style={{ fontSize: '0.72rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={request.makeup_activities.title}>
-                                      Task: {request.makeup_activities.title}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  {request.status === 'pending_review' || request.status === 'pending' ? (
+                                    <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                                      ⏳ Justification Pending
                                     </span>
+                                  ) : request.status === 'approved_pending_submission' || request.status === 'approved' ? (
+                                    <button
+                                      className="btn btn-sm"
+                                      style={{ fontSize: '0.75rem', padding: '3px 10px', background: '#22c55e', color: '#fff', border: 'none' }}
+                                      onClick={() => {
+                                        setViewingRequest(request);
+                                        setTurnInLink(request.submission_link || '');
+                                      }}
+                                    >
+                                      🔓 View Task & Turn In
+                                    </button>
+                                  ) : request.status === 'submitted' ? (
+                                    <span style={{ fontSize: '0.75rem', background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                                      ✓ Work Submitted
+                                    </span>
+                                  ) : request.status === 'completed' ? (
+                                    <span style={{ fontSize: '0.75rem', background: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                                      ✅ Completed
+                                    </span>
+                                  ) : (
+                                    <div style={{ fontSize: '0.75rem', color: '#dc2626' }}>
+                                      ❌ Request Rejected
+                                      {request.instructor_remarks && (
+                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>({request.instructor_remarks})</div>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
+                              ) : isClosed ? (
+                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                                  Requests Closed
+                                </span>
                               ) : (
                                 <button
                                   id={`makeup-btn-${act.id}`}
                                   className="btn btn-sm"
                                   style={{
+                                    fontSize: '0.75rem',
+                                    padding: '3px 8px',
                                     background: 'var(--color-warning-light)',
                                     color: '#92400e',
                                     border: '1px solid #fcd34d',
                                   }}
                                   onClick={() => setMakeupTarget(act)}
                                 >
-                                  Request Make-up
+                                  Request Make-Up
                                 </button>
                               )
                             )}
@@ -213,6 +282,90 @@ export default function StudentDashboard({
         <ScoreSummary activities={activities} scores={scores} />
       </div>
 
+      {/* Stage 2: View Unlocked Make-Up Task & Turn-In Modal */}
+      {viewingRequest && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal" style={{ maxWidth: '560px' }}>
+            <div className="modal-header">
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#15803d' }}>
+                🎉 Make-Up Request Approved
+              </h2>
+              <button className="modal-close" onClick={() => setViewingRequest(null)}>✕</button>
+            </div>
+
+            <div className="modal-body">
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#166534', fontWeight: 700 }}>
+                  Assigned Assignment
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#14532d', margin: '4px 0' }}>
+                  {viewingRequest.makeup_tasks?.title || 'Custom Make-Up Task'}
+                </div>
+
+                <div style={{ fontSize: '0.88rem', color: '#166534', whiteSpace: 'pre-wrap', marginTop: '8px', lineHeight: 1.5 }}>
+                  {viewingRequest.makeup_tasks?.instructions || 'Follow instructor guidelines.'}
+                </div>
+
+                {viewingRequest.makeup_tasks?.submission_url && (
+                  <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #bbf7d0' }}>
+                    <a
+                      href={viewingRequest.makeup_tasks.submission_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.82rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      📁 Open Submission Folder / Form ↗
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {viewingRequest.instructor_remarks && (
+                <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', fontSize: '0.82rem', color: '#475569', marginBottom: '16px' }}>
+                  <strong>Instructor Remarks:</strong> {viewingRequest.instructor_remarks}
+                </div>
+              )}
+
+              {/* Turn-in form */}
+              <form onSubmit={handleTurnInSubmit}>
+                <div className="form-group" style={{ marginBottom: '14px' }}>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                    Your Submission Link / Google Drive URL *
+                  </label>
+                  <input
+                    type="url"
+                    className="form-input"
+                    placeholder="https://drive.google.com/file/d/..."
+                    value={turnInLink}
+                    onChange={(e) => { setTurnInLink(e.target.value); setTurnInError(''); }}
+                    required
+                  />
+                  <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                    Paste the view/edit link to your completed deliverable or Google Drive upload.
+                  </p>
+                </div>
+
+                {turnInError && (
+                  <div style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '0.82rem', marginBottom: '14px' }}>
+                    ⚠️ {turnInError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setViewingRequest(null)} disabled={turnInLoading}>
+                    Close
+                  </button>
+                  <button type="submit" className="btn btn-primary" style={{ background: '#16a34a', borderColor: '#16a34a' }} disabled={turnInLoading}>
+                    {turnInLoading ? 'Submitting…' : 'Mark as Submitted'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Appeal Modal */}
       {appealTarget && (
         <AppealForm
@@ -220,7 +373,7 @@ export default function StudentDashboard({
           activity={appealTarget}
           onClose={() => setAppealTarget(null)}
           onSuccess={(newAppeal) => {
-            setLocalAppeals((prev) => [...prev, newAppeal]);
+            setLocalAppeals((prev) => [newAppeal, ...prev]);
             setAppealTarget(null);
           }}
         />
@@ -233,7 +386,7 @@ export default function StudentDashboard({
           activity={makeupTarget}
           onClose={() => setMakeupTarget(null)}
           onSuccess={(newReq) => {
-            setLocalRequests((prev) => [...prev, newReq]);
+            setLocalRequests((prev) => [newReq, ...prev]);
             setMakeupTarget(null);
           }}
         />

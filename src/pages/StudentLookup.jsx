@@ -1,13 +1,33 @@
-import { useState } from 'react';
-import { lookupStudent } from '../services/studentService.js';
+import { useState, useEffect } from 'react';
+import { lookupStudent, getPublicSubjects, getPublicSections } from '../services/studentService.js';
 import StudentDashboard from '../components/StudentDashboard.jsx';
 import './StudentLookup.css';
 
 export default function StudentLookup() {
+  const [subjects, setSubjects] = useState([]);
+  const [sections, setSections] = useState([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [form, setForm] = useState({ section: '', surname: '', studentNo: '' });
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    getPublicSubjects().then((data) => {
+      setSubjects(data);
+    });
+    getPublicSections().then((data) => {
+      setSections(data);
+    });
+  }, []);
+
+  const handleSubjectChange = (e) => {
+    const subjId = e.target.value;
+    setSelectedSubjectId(subjId);
+    getPublicSections(subjId || null).then((data) => {
+      setSections(data);
+    });
+  };
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -25,7 +45,12 @@ export default function StudentLookup() {
     setResult(null);
     setError('');
 
-    const res = await lookupStudent(form.section, form.surname, form.studentNo);
+    const res = await lookupStudent(
+      form.section,
+      form.surname,
+      form.studentNo,
+      selectedSubjectId || null
+    );
     setLoading(false);
 
     if (res.error) {
@@ -70,20 +95,64 @@ export default function StudentLookup() {
         </div>
 
         <form onSubmit={handleSubmit} className="lookup-form" noValidate>
+          {subjects.length > 0 && (
+            <div className="form-group">
+              <label htmlFor="subject-select" className="form-label">
+                Course / Subject <span className="text-muted">(Optional)</span>
+              </label>
+              <select
+                id="subject-select"
+                className="form-input"
+                value={selectedSubjectId}
+                onChange={handleSubjectChange}
+              >
+                <option value="">-- All Courses / General --</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.code}: {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="form-group">
             <label htmlFor="section" className="form-label">Section</label>
-            <input
-              id="section"
-              name="section"
-              type="text"
-              className="form-input"
-              placeholder="e.g. BSIT-3A"
-              value={form.section}
-              onChange={handleChange}
-              autoComplete="off"
-              autoCapitalize="characters"
-              required
-            />
+            {sections.length > 0 ? (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  id="section"
+                  name="section"
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. BSIT-3A"
+                  value={form.section}
+                  onChange={handleChange}
+                  list="sections-datalist"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  required
+                />
+                <datalist id="sections-datalist">
+                  {sections.map((sec) => (
+                    <option key={sec.id} value={sec.name} />
+                  ))}
+                </datalist>
+              </div>
+            ) : (
+              <input
+                id="section"
+                name="section"
+                type="text"
+                className="form-input"
+                placeholder="e.g. BSIT-3A"
+                value={form.section}
+                onChange={handleChange}
+                autoComplete="off"
+                autoCapitalize="characters"
+                required
+              />
+            )}
           </div>
 
           <div className="form-group">

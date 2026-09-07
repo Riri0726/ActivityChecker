@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { submitAppeal, uploadAppealProof } from '../services/studentService.js';
+import { submitAppeal, uploadAndCompressAppealProof } from '../services/studentService.js';
 
 export default function AppealForm({ student, activity, onClose, onSuccess }) {
   const [form, setForm] = useState({ reason: '', notes: '' });
@@ -29,13 +29,6 @@ export default function AppealForm({ student, activity, onClose, onSuccess }) {
       return;
     }
 
-    // 5MB limit
-    if (selectedFile.size > 5 * 1024 * 1024) {
-      setError('File exceeds 5MB maximum size. Please upload a smaller image.');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
     setFile(selectedFile);
     const objectUrl = URL.createObjectURL(selectedFile);
     setPreviewUrl(objectUrl);
@@ -55,32 +48,36 @@ export default function AppealForm({ student, activity, onClose, onSuccess }) {
       return;
     }
 
+    // Strict image proof requirement
+    if (!file) {
+      setError('An image proof screenshot is strictly mandatory for score appeals.');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     let storagePath = null;
 
-    // Upload image proof if attached
-    if (file) {
-      setUploadStatus('Uploading proof image…');
-      const uploadRes = await uploadAppealProof(file, student.section_id, student.id);
-      if (uploadRes.error) {
-        setError(uploadRes.error);
-        setLoading(false);
-        setUploadStatus('');
-        return;
-      }
-      storagePath = uploadRes.storagePath;
+    setUploadStatus('Compressing image client-side under 500 KB…');
+    const uploadRes = await uploadAndCompressAppealProof(file, student.section_id, student.id);
+    if (uploadRes.error) {
+      setError(uploadRes.error);
+      setLoading(false);
+      setUploadStatus('');
+      return;
     }
+    storagePath = uploadRes.storagePath;
 
-    setUploadStatus('Submitting appeal…');
+    setUploadStatus('Submitting appeal record…');
     const res = await submitAppeal({
-      studentId:   student.id,
-      activityId:  activity.id,
-      reason:      form.reason.trim(),
-      notes:       form.notes.trim() || null,
-      storagePath: storagePath || null,
+      studentId: student.id,
+      activityId: activity.id,
+      reason: form.reason.trim(),
+      notes: form.notes.trim() || null,
+      storagePath,
     });
+
     setLoading(false);
     setUploadStatus('');
 
@@ -94,208 +91,138 @@ export default function AppealForm({ student, activity, onClose, onSuccess }) {
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="appeal-modal-title">
-      <div className="modal">
+      <div className="modal" style={{ maxWidth: '520px' }}>
         <div className="modal-header">
-          <h2 id="appeal-modal-title" style={{ fontSize: '1.1rem' }}>
+          <h2 id="appeal-modal-title" style={{ fontSize: '1.1rem', fontWeight: 600 }}>
             📝 File an Appeal
           </h2>
-          <button className="modal-close" onClick={onClose} aria-label="Close appeal form">×</button>
+          <button className="modal-close" onClick={onClose} aria-label="Close modal">✕</button>
         </div>
 
-        {/* Activity info */}
-        <div className="appeal-activity-info">
-          <span className="text-muted" style={{ fontSize: '0.82rem' }}>Activity</span>
-          <strong>{activity.title}</strong>
-          {activity.max_score > 0 && (
-            <span className="text-muted">Max score: {activity.max_score}</span>
-          )}
-        </div>
-
-        {/* Student info (read-only) */}
-        <div className="appeal-student-info">
-          <span className="text-muted" style={{ fontSize: '0.82rem' }}>Student</span>
-          <span>{student.first_name} {student.surname}</span>
-          {student.student_no && <span className="text-muted">#{student.student_no}</span>}
-          <span className="badge badge-pending">{student.sectionName}</span>
-        </div>
-
-        <form onSubmit={handleSubmit} noValidate>
-          <div className="form-group" style={{ marginBottom: 'var(--sp-4)' }}>
-            <label htmlFor="appeal-reason" className="form-label">
-              Reason for Appeal <span style={{ color: 'var(--color-danger)' }}>*</span>
-            </label>
-            <textarea
-              id="appeal-reason"
-              name="reason"
-              className="form-textarea"
-              placeholder="Explain why you are filing this appeal (e.g., score is wrong, activity marked missing but you submitted it)…"
-              value={form.reason}
-              onChange={handleChange}
-              required
-            />
+        <div className="modal-body">
+          <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', marginBottom: '14px', fontSize: '0.85rem' }}>
+            Activity: <strong style={{ color: 'var(--color-heading)' }}>{activity.title}</strong>
           </div>
 
-          <div className="form-group" style={{ marginBottom: 'var(--sp-4)' }}>
-            <label htmlFor="appeal-notes" className="form-label">
-              Additional Notes <span className="text-muted">(optional)</span>
-            </label>
-            <textarea
-              id="appeal-notes"
-              name="notes"
-              className="form-textarea"
-              placeholder="Any links or extra context…"
-              value={form.notes}
-              onChange={handleChange}
-              style={{ minHeight: 60 }}
-            />
-          </div>
-
-          {/* Proof Screenshot Upload (Optional, auto-purged on resolution) */}
-          <div className="form-group" style={{ marginBottom: 'var(--sp-5)' }}>
-            <label className="form-label">
-              Proof Screenshot <span className="text-muted">(optional, max 5MB)</span>
-            </label>
-            <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: -4, marginBottom: 8 }}>
-              Upload submission receipt, LMS screenshot, or photo of work. Image is automatically purged from storage once resolved.
-            </p>
-
-            {!file ? (
-              <div
-                className="appeal-upload-drop"
-                onClick={() => fileInputRef.current?.click()}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+          <form onSubmit={handleSubmit} noValidate>
+            <div className="form-group" style={{ marginBottom: '12px' }}>
+              <label htmlFor="appeal-reason" className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                Reason for Appeal *
+              </label>
+              <select
+                id="appeal-reason"
+                name="reason"
+                className="form-input"
+                value={form.reason}
+                onChange={handleChange}
+                required
               >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={handleFileChange}
-                  className="sr-only"
-                />
-                <span aria-hidden="true" style={{ fontSize: '1.2rem' }}>📷</span>
-                <span style={{ fontSize: '0.88rem', fontWeight: 500 }}>
-                  Click to select proof screenshot (PNG, JPG, WEBP)
-                </span>
-              </div>
-            ) : (
-              <div className="appeal-file-selected">
-                <img src={previewUrl} alt="Proof preview" className="appeal-thumb-preview" />
-                <div className="appeal-file-meta">
-                  <div className="appeal-file-name">{file.name}</div>
-                  <div className="text-muted" style={{ fontSize: '0.78rem' }}>
-                    {(file.size / 1024).toFixed(1)} KB
+                <option value="">-- Select a reason --</option>
+                <option value="Submitted on time but marked missing">Submitted on time but marked missing</option>
+                <option value="Score mismatch with actual grade received">Score mismatch with actual grade received</option>
+                <option value="Submitted via alternative channel / email">Submitted via alternative channel / email</option>
+                <option value="Other dispute">Other dispute</option>
+              </select>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: '12px' }}>
+              <label htmlFor="appeal-notes" className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                Detailed Explanation
+              </label>
+              <textarea
+                id="appeal-notes"
+                name="notes"
+                className="form-input"
+                rows="3"
+                placeholder="Explain the circumstances, date submitted, or platform used..."
+                value={form.notes}
+                onChange={handleChange}
+              />
+            </div>
+
+            {/* Strict Image Proof */}
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Screenshot Proof *</span>
+                <span style={{ fontSize: '0.75rem', color: '#dc2626' }}>Mandatory</span>
+              </label>
+
+              {!file ? (
+                <div
+                  style={{
+                    border: '2px dashed var(--color-border)',
+                    borderRadius: '8px',
+                    padding: '20px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    background: '#f8fafc',
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <div style={{ fontSize: '1.8rem', marginBottom: '4px' }}>📷</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                    Attach Turn-in Screenshot / Receipt
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={handleRemoveFile}
-                    style={{ color: 'var(--color-danger)', marginTop: 4, padding: '2px 8px' }}
-                  >
-                    ✕ Remove image
-                  </button>
+                  <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                    PNG, JPG, or WEBP. Automatically compressed under 500 KB. Auto-purged once reviewed.
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                  />
                 </div>
+              ) : (
+                <div style={{ border: '1px solid var(--color-border)', borderRadius: '8px', padding: '10px', background: '#fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#166534' }}>
+                      ✓ Image attached ({Math.round(file.size / 1024)} KB)
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.75rem', padding: '2px 8px', color: '#dc2626' }}
+                      onClick={handleRemoveFile}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  {previewUrl && (
+                    <img
+                      src={previewUrl}
+                      alt="Proof Preview"
+                      style={{ maxHeight: '160px', width: '100%', objectFit: 'contain', borderRadius: '4px', background: '#f1f5f9' }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+
+            {uploadStatus && (
+              <div style={{ fontSize: '0.82rem', color: 'var(--color-primary)', marginBottom: '12px', textAlign: 'center' }}>
+                ⏳ {uploadStatus}
               </div>
             )}
-          </div>
 
-          {uploadStatus && (
-            <div className="alert alert-info" style={{ marginBottom: 'var(--sp-4)' }}>
-              <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-              {uploadStatus}
+            {error && (
+              <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '0.85rem', marginBottom: '14px' }}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={loading}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? 'Submitting…' : 'Submit Appeal'}
+              </button>
             </div>
-          )}
-
-          {error && (
-            <div className="alert alert-error" style={{ marginBottom: 'var(--sp-4)' }}>
-              <span>⚠️</span> {error}
-            </div>
-          )}
-
-          <div className="flex gap-3">
-            <button type="button" className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>
-              Cancel
-            </button>
-            <button
-              id="appeal-submit-btn"
-              type="submit"
-              className="btn btn-primary"
-              disabled={loading}
-              style={{ flex: 2 }}
-            >
-              {loading ? (uploadStatus || 'Submitting…') : 'Submit Appeal'}
-            </button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
-
-      <style>{`
-        .appeal-activity-info,
-        .appeal-student-info {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          background: var(--bg-card-alt);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          padding: var(--sp-3) var(--sp-4);
-          margin-bottom: var(--sp-5);
-          font-size: 0.9rem;
-        }
-        .appeal-student-info {
-          flex-direction: row;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: var(--sp-2);
-        }
-
-        .appeal-upload-drop {
-          border: 1px dashed var(--border-color);
-          border-radius: var(--radius-md);
-          padding: var(--sp-4);
-          text-align: center;
-          cursor: pointer;
-          background: var(--bg-card-alt);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: var(--sp-2);
-          transition: border-color var(--transition-fast), background var(--transition-fast);
-        }
-        .appeal-upload-drop:hover {
-          border-color: var(--color-primary);
-          background: var(--color-primary-light);
-        }
-        .appeal-file-selected {
-          display: flex;
-          align-items: center;
-          gap: var(--sp-3);
-          padding: var(--sp-3);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          background: var(--bg-card);
-        }
-        .appeal-thumb-preview {
-          width: 64px;
-          height: 64px;
-          object-fit: cover;
-          border-radius: var(--radius-sm);
-          border: 1px solid var(--border-color);
-        }
-        .appeal-file-meta {
-          flex: 1;
-          min-width: 0;
-        }
-        .appeal-file-name {
-          font-size: 0.85rem;
-          font-weight: 500;
-          color: var(--text-primary);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-      `}</style>
     </div>
   );
 }
