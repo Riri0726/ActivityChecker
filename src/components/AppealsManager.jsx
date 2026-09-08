@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getAppeals, updateAppealWithPurge, getProofSignedUrl } from '../services/adminService.js';
 
 const STATUS_OPTIONS = ['pending', 'reviewed', 'resolved', 'rejected'];
