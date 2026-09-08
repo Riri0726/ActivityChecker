@@ -9,9 +9,9 @@
    SIDEBAR
    ============================================================ */
 .admin-sidebar {
-  width: 240px;
+  width: 250px;
   flex-shrink: 0;
-  background: var(--bg-sidebar);
+  background: linear-gradient(180deg, #1a1d30 0%, #141625 100%);
   color: #e2e8f0;
   display: flex;
   flex-direction: column;
@@ -22,6 +22,7 @@
   overflow-y: auto;
   transition: transform var(--transition-slow);
   z-index: 100;
+  border-right: 1px solid rgba(255,255,255,0.06);
 }
 
 .sidebar-logo {
@@ -116,11 +117,18 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  padding: var(--sp-8);
+  overflow-y: auto;
 }
 
 .admin-content {
   padding: var(--sp-8) var(--sp-8);
   flex: 1;
+}
+
+/* Mobile menu button: hidden on desktop, shown on mobile */
+.mobile-menu-btn {
+  display: none !important;
 }
 
 /* ============================================================
@@ -163,5 +171,9 @@
     box-shadow: var(--shadow-xl);
   }
   .admin-topbar { display: flex; }
+  .admin-main { padding: var(--sp-5) var(--sp-4); }
   .admin-content { padding: var(--sp-5) var(--sp-4); }
+  .mobile-menu-btn {
+    display: inline-flex !important;
+  }
 }
