@@ -56,6 +56,10 @@ export default function StudentLookup() {
     if (res.error) {
       setError(res.error);
     } else {
+      // Apply the admin's theme for student-side display
+      if (res.adminTheme) {
+        document.documentElement.setAttribute('data-theme', res.adminTheme);
+      }
       setResult(res);
     }
   };
@@ -64,6 +68,8 @@ export default function StudentLookup() {
     setResult(null);
     setForm({ section: '', surname: '', studentNo: '' });
     setError('');
+    // Reset theme to default when returning to lookup
+    document.documentElement.removeAttribute('data-theme');
   };
 
   if (result) {

@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and Sema
 
 ---
 
+## [v0.7.0] - 2026-09-09
+
+### Added
+- **Admin Theme System** — Admins can choose from 4 theme colors (Blue, Black, Purple, Green) via a sidebar picker. The chosen theme propagates to the student-facing dashboard, so students see their instructor's brand color on buttons, progress bars, and accents.
+- **Permanent Workbook Deletion** (`Gradebook.jsx`) — Two-step destructive delete: shows impact summary (students/activities/scores count), then requires typing the section name to confirm. Hard-deletes the section and all cascaded data.
+- **Inline Student Detail Editing** (`Gradebook.jsx`) — Click any student name or student number cell in the gradebook to edit it in-place. Saves on blur/Enter, cancels on Escape. Automatically regenerates the student's `access_key`.
+- **Admin Sign-Up / Account Creation** (`TeacherManager.jsx`) — Super-admins can create new instructor accounts directly from the Instructors panel. A form collects Full Name, Email, Role, and a temporary password. Creates the Supabase Auth user and admins record, then displays the credentials for sharing.
+
+### Schema / Migration
+- `admins.theme` column (`text NOT NULL DEFAULT 'blue'`, check constraint for blue/black/purple/green)
+- RLS delete policies for `students`, `scores`, `activities`, `sections` to support permanent workbook deletion
+
+---
+
 ## [v0.5.0] - 2026-09-07
 
 ### Added

@@ -60,7 +60,7 @@ export async function lookupStudent(sectionName, surname, studentNo, subjectId =
   // 1. Find the section
   let secQuery = supabase
     .from('sections')
-    .select('id, name, subject_id')
+    .select('id, name, subject_id, admin_id')
     .eq('name', cleanSection)
     .eq('archived', false);
 
@@ -76,7 +76,18 @@ export async function lookupStudent(sectionName, surname, studentNo, subjectId =
 
   const section = sections[0];
 
-  // 2. Find the student in that section
+  // 2a. Fetch the admin's theme for this section (for student-side theming)
+  let adminTheme = 'blue';
+  if (section.admin_id) {
+    const { data: adminData } = await supabase
+      .from('admins')
+      .select('theme')
+      .eq('id', section.admin_id)
+      .maybeSingle();
+    if (adminData?.theme) adminTheme = adminData.theme;
+  }
+
+  // 2b. Find the student in that section
   const { data: student, error: studentErr } = await supabase
     .from('students')
     .select('id, surname, first_name, student_no, section_id')
@@ -138,6 +149,7 @@ export async function lookupStudent(sectionName, surname, studentNo, subjectId =
     scores: scores || [],
     appeals: appeals || [],
     makeupRequests: makeupRequests || [],
+    adminTheme,
   };
 }
 

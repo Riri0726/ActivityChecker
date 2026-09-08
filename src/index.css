@@ -108,6 +108,69 @@
 }
 
 /* ============================================================
+   THEME PALETTES — Applied via [data-theme] attribute on :root
+   ============================================================ */
+
+/* Blue (default — inherits base :root values) */
+[data-theme="blue"] {
+  --color-primary:        #4f6ef7;
+  --color-primary-hover:  #3b57e0;
+  --color-primary-light:  #eef1fe;
+  --border-focus:         #4f6ef7;
+  --sidebar-gradient-from: #1a1d30;
+  --sidebar-gradient-to:   #141625;
+}
+
+/* Black / Slate */
+[data-theme="black"] {
+  --color-primary:        #334155;
+  --color-primary-hover:  #1e293b;
+  --color-primary-light:  #f1f5f9;
+  --border-focus:         #475569;
+  --sidebar-gradient-from: #0f172a;
+  --sidebar-gradient-to:   #020617;
+}
+
+/* Purple / Indigo */
+[data-theme="purple"] {
+  --color-primary:        #7c3aed;
+  --color-primary-hover:  #6d28d9;
+  --color-primary-light:  #f5f3ff;
+  --border-focus:         #8b5cf6;
+  --sidebar-gradient-from: #1e1338;
+  --sidebar-gradient-to:   #130d24;
+}
+
+/* Green / Emerald */
+[data-theme="green"] {
+  --color-primary:        #059669;
+  --color-primary-hover:  #047857;
+  --color-primary-light:  #ecfdf5;
+  --border-focus:         #10b981;
+  --sidebar-gradient-from: #0c2a1e;
+  --sidebar-gradient-to:   #071a12;
+}
+
+/* Dark mode overrides per theme */
+@media (prefers-color-scheme: dark) {
+  [data-theme="blue"] {
+    --color-primary-light: #1e2a5e;
+  }
+  [data-theme="black"] {
+    --color-primary:        #94a3b8;
+    --color-primary-hover:  #cbd5e1;
+    --color-primary-light:  #1e293b;
+    --border-focus:         #64748b;
+  }
+  [data-theme="purple"] {
+    --color-primary-light: #2e1065;
+  }
+  [data-theme="green"] {
+    --color-primary-light: #052e16;
+  }
+}
+
+/* ============================================================
    RESET & BASE
    ============================================================ */
 *, *::before, *::after {

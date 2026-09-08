@@ -52,6 +52,52 @@ export async function deleteAdmin(adminId) {
   if (error) throw new Error(`Failed to delete admin: ${error.message}`);
 }
 
+export async function updateAdminTheme(adminId, theme) {
+  const { error } = await supabase
+    .from('admins')
+    .update({ theme })
+    .eq('id', adminId);
+
+  if (error) throw new Error(`Failed to update theme: ${error.message}`);
+}
+
+export async function createAdminAccount({ email, fullName, role = 'teacher', tempPassword }) {
+  // 1. Create auth user via signUp (does not sign out current session when email confirmation is enabled)
+  const { data: authData, error: authErr } = await supabase.auth.signUp({
+    email: email.trim().toLowerCase(),
+    password: tempPassword,
+    options: {
+      data: { full_name: fullName, auto_created: true },
+    },
+  });
+
+  if (authErr) throw new Error(`Failed to create auth account: ${authErr.message}`);
+
+  const newUserId = authData?.user?.id;
+  if (!newUserId) throw new Error('Auth account created but no user ID returned.');
+
+  // 2. Insert into admins table
+  const { data: adminData, error: adminErr } = await supabase
+    .from('admins')
+    .upsert(
+      {
+        id: newUserId,
+        email: email.trim().toLowerCase(),
+        full_name: fullName.trim(),
+        role,
+      },
+      { onConflict: 'id' }
+    )
+    .select()
+    .single();
+
+  if (adminErr) {
+    console.warn('Admin profile insert warning:', adminErr.message);
+  }
+
+  return { user: authData.user, admin: adminData };
+}
+
 // ============================================================
 // SUBJECT MANAGEMENT
 // ============================================================
@@ -156,6 +202,37 @@ export async function getSections(subjectId = null, adminId = null) {
 }
 
 // ============================================================
+// PERMANENT SECTION (WORKBOOK) DELETION
+// ============================================================
+
+export async function getSectionDeleteSummary(sectionId) {
+  const [studentsRes, activitiesRes, scoresRes] = await Promise.all([
+    supabase.from('students').select('*', { count: 'exact', head: true }).eq('section_id', sectionId),
+    supabase.from('activities').select('*', { count: 'exact', head: true }).eq('section_id', sectionId),
+    supabase.from('scores').select('*', { count: 'exact', head: true }).in(
+      'student_id',
+      (await supabase.from('students').select('id').eq('section_id', sectionId)).data?.map(s => s.id) || []
+    ),
+  ]);
+
+  return {
+    students: studentsRes.count || 0,
+    activities: activitiesRes.count || 0,
+    scores: scoresRes.count || 0,
+  };
+}
+
+export async function deleteSection(sectionId) {
+  // Cascade: students, activities, scores all have ON DELETE CASCADE
+  const { error } = await supabase
+    .from('sections')
+    .delete()
+    .eq('id', sectionId);
+
+  if (error) throw new Error(`Failed to delete section: ${error.message}`);
+}
+
+// ============================================================
 // STUDENT MANAGEMENT
 // ============================================================
 
@@ -176,6 +253,37 @@ export async function upsertStudent(sectionId, { surname, firstName, studentNo, 
     .single();
 
   if (error) throw new Error(`Failed to upsert student "${accessKey}": ${error.message}`);
+  return data;
+}
+
+export async function updateStudent(studentId, { surname, firstName, studentNo }) {
+  const payload = {};
+  if (surname !== undefined) payload.surname = surname.trim();
+  if (firstName !== undefined) payload.first_name = firstName.trim();
+  if (studentNo !== undefined) payload.student_no = studentNo?.trim() || null;
+
+  // Regenerate access_key if name changed
+  if (payload.surname || payload.first_name) {
+    // Fetch current data to build the new key
+    const { data: current } = await supabase
+      .from('students')
+      .select('surname, first_name, student_no')
+      .eq('id', studentId)
+      .single();
+
+    const finalSurname = payload.surname || current?.surname || '';
+    const finalStudentNo = payload.student_no !== undefined ? payload.student_no : (current?.student_no || '');
+    payload.access_key = (finalSurname + (finalStudentNo || '')).toUpperCase().replace(/\s/g, '');
+  }
+
+  const { data, error } = await supabase
+    .from('students')
+    .update(payload)
+    .eq('id', studentId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update student: ${error.message}`);
   return data;
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSections, getGradebook, updateScoreInline, updateActivitySettings } from '../services/adminService.js';
+import { getSections, getGradebook, updateScoreInline, updateActivitySettings, getSectionDeleteSummary, deleteSection, updateStudent } from '../services/adminService.js';
 import { exportSectionToExcel, exportSectionToPdf } from '../services/exportService.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -13,6 +13,15 @@ export default function Gradebook() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [exporting, setExporting] = useState(false);
+
+  // Delete workbook modal state
+  const [deleteModal, setDeleteModal] = useState(null); // { sectionId, sectionName, summary }
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Inline student editing state
+  const [editingStudent, setEditingStudent] = useState(null); // { studentId, field, value }
+  const [savingStudent, setSavingStudent] = useState(null);
 
   const loadGradebook = useCallback(async (sectionId) => {
     if (!sectionId) return;
@@ -107,6 +116,86 @@ export default function Gradebook() {
   const activeSectionObj = sections.find((s) => s.id === selectedSection);
   const activeSubjectObj = subjects.find((s) => s.id === selectedSubjectId);
 
+  // ---- Delete Workbook Handlers ----
+  const handleDeleteWorkbookClick = async () => {
+    if (!selectedSection || !activeSectionObj) return;
+    setDeleteLoading(true);
+    try {
+      const summary = await getSectionDeleteSummary(selectedSection);
+      setDeleteModal({ sectionId: selectedSection, sectionName: activeSectionObj.name, summary });
+      setDeleteConfirmName('');
+    } catch (e) {
+      setError('Failed to load deletion summary: ' + e.message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleDeleteWorkbookConfirm = async () => {
+    if (!deleteModal || deleteConfirmName !== deleteModal.sectionName) return;
+    setDeleteLoading(true);
+    try {
+      await deleteSection(deleteModal.sectionId);
+      setSuccess(`Workbook "${deleteModal.sectionName}" has been permanently deleted.`);
+      setDeleteModal(null);
+      setDeleteConfirmName('');
+      setSelectedSection('');
+      setData(null);
+      await loadSectionsList();
+    } catch (e) {
+      setError('Failed to delete workbook: ' + e.message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // ---- Inline Student Edit Handlers ----
+  const handleStudentEditStart = (studentId, field, currentValue) => {
+    setEditingStudent({ studentId, field, value: currentValue || '' });
+  };
+
+  const handleStudentEditSave = async () => {
+    if (!editingStudent) return;
+    const { studentId, field, value } = editingStudent;
+    setSavingStudent(studentId);
+    try {
+      const payload = {};
+      if (field === 'name') {
+        // Parse "SURNAME, FIRSTNAME" format
+        const parts = value.split(',').map((s) => s.trim());
+        payload.surname = parts[0] || '';
+        payload.firstName = parts[1] || '';
+        if (!payload.surname) {
+          setError('Surname cannot be empty.');
+          setSavingStudent(null);
+          return;
+        }
+      } else if (field === 'studentNo') {
+        payload.studentNo = value;
+      }
+
+      const updated = await updateStudent(studentId, payload);
+      setData((prev) => ({
+        ...prev,
+        students: prev.students.map((s) =>
+          s.id === studentId
+            ? { ...s, surname: updated.surname, first_name: updated.first_name, student_no: updated.student_no }
+            : s
+        ),
+      }));
+      setEditingStudent(null);
+      setSuccess('Student details updated.');
+    } catch (e) {
+      setError('Failed to update student: ' + e.message);
+    } finally {
+      setSavingStudent(null);
+    }
+  };
+
+  const handleStudentEditCancel = () => {
+    setEditingStudent(null);
+  };
+
   const handleExportExcel = async () => {
     if (!data || !activeSectionObj) return;
     setExporting(true);
@@ -196,6 +285,20 @@ export default function Gradebook() {
             </button>
           </div>
         )}
+
+        {/* Delete Workbook Button */}
+        {data && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={handleDeleteWorkbookClick}
+              disabled={deleteLoading}
+              style={{ fontSize: '0.82rem' }}
+            >
+              🗑️ Delete Workbook
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -260,11 +363,91 @@ export default function Gradebook() {
             <tbody>
               {data.students.map((student, sIdx) => (
                 <tr key={student.id} style={{ borderBottom: '1px solid var(--color-border)', background: sIdx % 2 === 1 ? '#fafafa' : '#fff' }}>
-                  <td style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600 }}>
-                    {student.surname}, {student.first_name}
+                  <td
+                    style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, cursor: 'pointer', position: 'relative' }}
+                    onClick={() => {
+                      if (editingStudent?.studentId !== student.id || editingStudent?.field !== 'name') {
+                        handleStudentEditStart(student.id, 'name', `${student.surname}, ${student.first_name}`);
+                      }
+                    }}
+                    title="Click to edit student name"
+                  >
+                    {editingStudent?.studentId === student.id && editingStudent?.field === 'name' ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        style={{
+                          width: '100%',
+                          padding: '4px 8px',
+                          border: '1.5px solid var(--color-primary)',
+                          borderRadius: '4px',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          background: 'var(--bg-card)',
+                          color: 'var(--text-primary)',
+                          outline: 'none',
+                          boxShadow: '0 0 0 3px rgba(79,110,247,0.12)',
+                        }}
+                        value={editingStudent.value}
+                        onChange={(e) => setEditingStudent((prev) => ({ ...prev, value: e.target.value }))}
+                        onBlur={handleStudentEditSave}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleStudentEditSave();
+                          if (e.key === 'Escape') handleStudentEditCancel();
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={savingStudent === student.id}
+                        placeholder="SURNAME, First Name"
+                      />
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        {student.surname}, {student.first_name}
+                        <span style={{ fontSize: '0.7rem', opacity: 0.4 }} title="Click to edit">✏️</span>
+                      </span>
+                    )}
                   </td>
-                  <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)' }}>
-                    {student.student_no || '—'}
+                  <td
+                    style={{ padding: '10px 12px', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+                    onClick={() => {
+                      if (editingStudent?.studentId !== student.id || editingStudent?.field !== 'studentNo') {
+                        handleStudentEditStart(student.id, 'studentNo', student.student_no || '');
+                      }
+                    }}
+                    title="Click to edit student number"
+                  >
+                    {editingStudent?.studentId === student.id && editingStudent?.field === 'studentNo' ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        style={{
+                          width: '80px',
+                          padding: '4px 6px',
+                          border: '1.5px solid var(--color-primary)',
+                          borderRadius: '4px',
+                          fontSize: '0.85rem',
+                          textAlign: 'center',
+                          background: 'var(--bg-card)',
+                          color: 'var(--text-primary)',
+                          outline: 'none',
+                          boxShadow: '0 0 0 3px rgba(79,110,247,0.12)',
+                        }}
+                        value={editingStudent.value}
+                        onChange={(e) => setEditingStudent((prev) => ({ ...prev, value: e.target.value }))}
+                        onBlur={handleStudentEditSave}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleStudentEditSave();
+                          if (e.key === 'Escape') handleStudentEditCancel();
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={savingStudent === student.id}
+                        placeholder="—"
+                      />
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        {student.student_no || '—'}
+                        <span style={{ fontSize: '0.7rem', opacity: 0.4 }} title="Click to edit">✏️</span>
+                      </span>
+                    )}
                   </td>
                   {data.activities.map((act) => {
                     const sc = getScore(student.id, act.id, data.scores);
@@ -303,6 +486,65 @@ export default function Gradebook() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Delete Workbook Confirmation Modal */}
+      {deleteModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                ⚠️ Permanently Delete Workbook
+              </h2>
+              <button className="modal-close" onClick={() => { setDeleteModal(null); setDeleteConfirmName(''); }}>✕</button>
+            </div>
+
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+              <div style={{ fontWeight: 700, color: '#991b1b', marginBottom: '8px' }}>
+                This action is irreversible!
+              </div>
+              <div style={{ fontSize: '0.88rem', color: '#7f1d1d' }}>
+                You are about to permanently delete section <strong>"{deleteModal.sectionName}"</strong> and all associated data:
+              </div>
+              <ul style={{ margin: '12px 0 0 20px', fontSize: '0.88rem', color: '#991b1b', lineHeight: 1.8 }}>
+                <li><strong>{deleteModal.summary.students}</strong> student records</li>
+                <li><strong>{deleteModal.summary.activities}</strong> activities</li>
+                <li><strong>{deleteModal.summary.scores}</strong> score entries</li>
+              </ul>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label className="form-label" style={{ fontSize: '0.85rem' }}>
+                Type <strong>"{deleteModal.sectionName}"</strong> to confirm:
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                placeholder={deleteModal.sectionName}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => { setDeleteModal(null); setDeleteConfirmName(''); }}
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={handleDeleteWorkbookConfirm}
+                disabled={deleteConfirmName !== deleteModal.sectionName || deleteLoading}
+              >
+                {deleteLoading ? 'Deleting…' : '🗑️ Delete Permanently'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

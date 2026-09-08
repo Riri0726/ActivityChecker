@@ -67,6 +67,10 @@ export function AuthProvider({ children }) {
 
       setAdminProfile(currentProfile);
 
+      // Apply admin theme to document root
+      const theme = currentProfile?.theme || 'blue';
+      document.documentElement.setAttribute('data-theme', theme);
+
       // 2. Fetch subjects for this admin (or all subjects if super_admin)
       let query = supabase.from('subjects').select('*').order('code', { ascending: true });
       if (currentProfile?.role !== 'super_admin') {
