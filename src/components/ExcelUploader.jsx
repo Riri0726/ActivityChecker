@@ -17,104 +17,135 @@ export default function ExcelUploader({ onUploadSuccess }) {
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
 
+  // Toast System
+  const [toasts, setToasts] = useState([]);
+  
+  const addToast = (type, message) => {
+    const id = Date.now() + Math.random().toString();
+    setToasts((prev) => [...prev, { id, type, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 5000);
+  };
+
   /**
    * Compute live diff against Supabase for visual preview before import
    */
   const computeWorkbookDiff = async (sheets) => {
-    for (const sheet of sheets) {
-      const { sectionName, students, activities, scores } = sheet;
+    try {
+      for (const sheet of sheets) {
+        const { sectionName, students, activities, scores } = sheet;
 
-      const { data: section } = await supabase
-        .from('sections')
-        .select('id')
-        .eq('name', sectionName)
-        .maybeSingle();
+        const { data: section, error: sectionErr } = await supabase
+          .from('sections')
+          .select('id')
+          .eq('name', sectionName)
+          .maybeSingle();
 
-      if (!section) {
-        sheet.diff = {
-          addedStudents: students,
-          modifiedScores: [],
-          unchangedCount: 0,
-          archivedActivities: [],
-        };
-        continue;
-      }
-
-      // Fetch existing students in DB
-      const { data: dbStudents } = await supabase
-        .from('students')
-        .select('id, access_key')
-        .eq('section_id', section.id);
-
-      const dbStudentMap = new Map();
-      (dbStudents || []).forEach((s) => dbStudentMap.set(s.access_key, s.id));
-
-      // Fetch existing activities in DB
-      const { data: dbActivities } = await supabase
-        .from('activities')
-        .select('id, title')
-        .eq('section_id', section.id)
-        .eq('archived', false);
-
-      const dbActMap = new Map();
-      (dbActivities || []).forEach((a) => dbActMap.set(a.title.toLowerCase().trim(), a.id));
-
-      const uploadedTitlesSet = new Set(activities.map((a) => a.title.toLowerCase().trim()));
-      const archivedActs = (dbActivities || []).filter((a) => !uploadedTitlesSet.has(a.title.toLowerCase().trim()));
-
-      // Fetch existing scores in DB
-      const studentIds = Array.from(dbStudentMap.values());
-      const dbScoresMap = new Map();
-      if (studentIds.length > 0) {
-        const { data: dbScores } = await supabase
-          .from('scores')
-          .select('student_id, activity_id, score, status')
-          .in('student_id', studentIds);
-
-        (dbScores || []).forEach((sc) => {
-          dbScoresMap.set(`${sc.student_id}_${sc.activity_id}`, sc);
-        });
-      }
-
-      const addedStudents = [];
-      const modifiedScores = [];
-      let unchangedCount = 0;
-
-      for (let i = 0; i < students.length; i++) {
-        const st = students[i];
-        const dbStudentId = dbStudentMap.get(st.accessKey);
-        if (!dbStudentId) {
-          addedStudents.push(st);
+        if (sectionErr) {
+          console.warn('[ExcelUploader] Error fetching section:', sectionErr);
         }
 
-        const rowScores = scores[i]?.studentScores || [];
-        for (const sc of rowScores) {
-          const actId = dbActMap.get(sc.activityTitle.toLowerCase().trim());
-          if (!dbStudentId || !actId) continue;
+        if (!section) {
+          sheet.diff = {
+            addedStudents: students,
+            modifiedScores: [],
+            unchangedCount: 0,
+            archivedActivities: [],
+          };
+          continue;
+        }
 
-          const existingSc = dbScoresMap.get(`${dbStudentId}_${actId}`);
-          const newScoreVal = sc.score;
-          const oldScoreVal = existingSc ? existingSc.score : null;
+        // Fetch existing students in DB
+        const { data: dbStudents, error: studentErr } = await supabase
+          .from('students')
+          .select('id, access_key')
+          .eq('section_id', section.id);
 
-          if (existingSc && oldScoreVal === newScoreVal) {
-            unchangedCount++;
-          } else if (newScoreVal !== null || existingSc) {
-            modifiedScores.push({
-              accessKey: st.accessKey,
-              activityTitle: sc.activityTitle,
-              oldScore: oldScoreVal,
-              newScore: newScoreVal,
-            });
+        if (studentErr) {
+          console.warn('[ExcelUploader] Error fetching students:', studentErr);
+        }
+
+        const dbStudentMap = new Map();
+        (dbStudents || []).forEach((s) => dbStudentMap.set(s.access_key, s.id));
+
+        // Fetch existing activities in DB
+        const { data: dbActivities, error: actErr } = await supabase
+          .from('activities')
+          .select('id, title')
+          .eq('section_id', section.id)
+          .eq('archived', false);
+
+        if (actErr) {
+          console.warn('[ExcelUploader] Error fetching activities:', actErr);
+        }
+
+        const dbActMap = new Map();
+        (dbActivities || []).forEach((a) => dbActMap.set(a.title.toLowerCase().trim(), a.id));
+
+        const uploadedTitlesSet = new Set(activities.map((a) => a.title.toLowerCase().trim()));
+        const archivedActs = (dbActivities || []).filter((a) => !uploadedTitlesSet.has(a.title.toLowerCase().trim()));
+
+        // Fetch existing scores in DB
+        const studentIds = Array.from(dbStudentMap.values());
+        const dbScoresMap = new Map();
+        if (studentIds.length > 0) {
+          const { data: dbScores, error: scoreErr } = await supabase
+            .from('scores')
+            .select('student_id, activity_id, score, status')
+            .in('student_id', studentIds);
+          
+          if (scoreErr) {
+            console.warn('[ExcelUploader] Error fetching scores:', scoreErr);
+          }
+
+          (dbScores || []).forEach((sc) => {
+            dbScoresMap.set(`${sc.student_id}_${sc.activity_id}`, sc);
+          });
+        }
+
+        const addedStudents = [];
+        const modifiedScores = [];
+        let unchangedCount = 0;
+
+        for (let i = 0; i < students.length; i++) {
+          const st = students[i];
+          const dbStudentId = dbStudentMap.get(st.accessKey);
+          if (!dbStudentId) {
+            addedStudents.push(st);
+          }
+
+          const rowScores = scores[i]?.studentScores || [];
+          for (const sc of rowScores) {
+            const actId = dbActMap.get(sc.activityTitle.toLowerCase().trim());
+            if (!dbStudentId || !actId) continue;
+
+            const existingSc = dbScoresMap.get(`${dbStudentId}_${actId}`);
+            const newScoreVal = sc.score;
+            const oldScoreVal = existingSc ? existingSc.score : null;
+
+            if (existingSc && oldScoreVal === newScoreVal) {
+              unchangedCount++;
+            } else if (newScoreVal !== null || existingSc) {
+              modifiedScores.push({
+                accessKey: st.accessKey,
+                activityTitle: sc.activityTitle,
+                oldScore: oldScoreVal,
+                newScore: newScoreVal,
+              });
+            }
           }
         }
-      }
 
-      sheet.diff = {
-        addedStudents,
-        modifiedScores,
-        unchangedCount,
-        archivedActivities: archivedActs,
-      };
+        sheet.diff = {
+          addedStudents,
+          modifiedScores,
+          unchangedCount,
+          archivedActivities: archivedActs,
+        };
+      }
+    } catch (err) {
+      console.error('[ExcelUploader] Error computing diff:', err);
     }
   };
 
@@ -125,19 +156,33 @@ export default function ExcelUploader({ onUploadSuccess }) {
     setError('');
     setParsing(true);
     setParsedSheets(null);
+    addToast('info', 'Reading Excel file...');
 
     try {
       const parsed = await parseWorkbook(f);
       if (!parsed || parsed.length === 0) {
-        setError('No valid sheets found in the uploaded file. Ensure sheets have student columns.');
+        const msg = 'No valid sheets found in the uploaded file. Ensure sheets have student columns.';
+        setError(msg);
+        addToast('error', msg);
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
       } else {
         await computeWorkbookDiff(parsed);
         setParsedSheets(parsed);
+        addToast('success', 'File parsed successfully! Review the changes below.');
       }
     } catch (err) {
-      setError(err.message || 'Failed to read Excel file.');
+      console.error('[ExcelUploader] Parse error:', err);
+      let errMsg = err.message || 'Unknown error. The file may be corrupted or in an unsupported format.';
+      
+      if (f.name.toLowerCase().endsWith('.csv')) {
+        errMsg = 'CSV files are not supported. Please save your file as .xlsx (Excel Workbook) format.';
+      } else if (err.message && err.message.includes('corrupted')) {
+        errMsg = 'The Excel file appears to be corrupted or invalid.';
+      }
+      
+      setError(errMsg);
+      addToast('error', 'Failed to parse file: ' + errMsg);
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } finally {
@@ -147,14 +192,31 @@ export default function ExcelUploader({ onUploadSuccess }) {
 
   const handleFileChange = (e) => {
     const f = e.target.files?.[0];
-    if (f) processFile(f);
+    if (f) {
+      const name = f.name.toLowerCase();
+      if (name.endsWith('.csv') || name.endsWith('.xls')) {
+        addToast('error', 'Invalid file type. Please upload a .xlsx file.');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      processFile(f);
+    }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
-    if (f && (f.name.endsWith('.xlsx') || f.name.endsWith('.csv'))) {
-      processFile(f);
+    if (f) {
+      const name = f.name.toLowerCase();
+      if (name.endsWith('.csv') || name.endsWith('.xls')) {
+        addToast('error', 'Invalid file type. Please upload a .xlsx file.');
+        return;
+      }
+      if (name.endsWith('.xlsx')) {
+        processFile(f);
+      } else {
+        addToast('error', 'Unsupported file format. Only .xlsx files are allowed.');
+      }
     }
   };
 
@@ -170,6 +232,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
     setLoading(true);
     setError('');
     setProgress(`Importing ${parsedSheets.length} section(s) to Supabase…`);
+    addToast('info', 'Starting import...');
 
     try {
       const summary = await importParsedWorkbook(
@@ -182,9 +245,12 @@ export default function ExcelUploader({ onUploadSuccess }) {
       setFile(null);
       setParsedSheets(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      addToast('success', 'Import completed successfully!');
       onUploadSuccess?.();
     } catch (err) {
-      setError(err.message || 'Upload failed. Please try again.');
+      const errorMessage = err.message || 'Upload failed. Please try again.';
+      setError(errorMessage);
+      addToast('error', 'Import failed: ' + errorMessage);
       setProgress('');
     } finally {
       setLoading(false);
@@ -205,161 +271,220 @@ export default function ExcelUploader({ onUploadSuccess }) {
 
   const activeSubject = subjects.find((s) => s.id === selectedSubjectId);
 
-  return (
-    <div className="uploader-wrap">
-      <div className="admin-section-header">
-        <h2>📤 Upload Gradebook</h2>
-        <p>
-          Upload an Excel file (.xlsx) with one sheet tab per section.
-          {activeSubject && (
-            <span style={{ marginLeft: '6px', fontWeight: 600, color: 'var(--color-primary)' }}>
-              Assigned Course: {activeSubject.code} ({activeSubject.name})
-            </span>
-          )}
-        </p>
-      </div>
+  const getToastColor = (type) => {
+    switch(type) {
+      case 'error': return '#ef4444';
+      case 'success': return '#22c55e';
+      case 'warning': return '#f59e0b';
+      case 'info': return '#3b82f6';
+      default: return '#3b82f6';
+    }
+  };
 
-      {/* Template Download */}
-      <div className="template-download-box">
-        <div className="template-download-info">
-          <span className="template-download-icon" aria-hidden="true">📋</span>
-          <div>
-            <div className="template-download-title">Don't have the format yet?</div>
-            <div className="template-download-sub">
-              Download a ready-to-fill Excel template with sample data and instructions.
-            </div>
-          </div>
+  try {
+    return (
+      <div className="uploader-wrap">
+        <style>
+          {`
+            @keyframes slideInFade {
+              from { opacity: 0; transform: translateX(20px); }
+              to { opacity: 1; transform: translateX(0); }
+            }
+          `}
+        </style>
+        <div className="admin-section-header">
+          <h2>📤 Upload Gradebook</h2>
+          <p>
+            Upload an Excel file (.xlsx) with one sheet tab per section.
+            {activeSubject && (
+              <span style={{ marginLeft: '6px', fontWeight: 600, color: 'var(--color-primary)' }}>
+                Assigned Course: {activeSubject.code} ({activeSubject.name})
+              </span>
+            )}
+          </p>
         </div>
-        <div className="template-download-action">
-          <input
-            id="template-section-input"
-            type="text"
-            className="form-input"
-            placeholder="Section name (e.g. BSIT-3A)"
-            value={templateSection}
-            onChange={(e) => setTemplateSection(e.target.value)}
-            style={{ width: 180, padding: '8px 12px', fontSize: '0.85rem' }}
-          />
-          <button
-            id="download-template-btn"
-            className="btn btn-success"
-            onClick={handleDownloadTemplate}
-            disabled={downloading}
-          >
-            {downloading ? 'Generating…' : '⬇ Download Template'}
-          </button>
-        </div>
-      </div>
 
-      {/* Drop zone - shown when no preview active */}
-      {!parsedSheets && !results && (
-        <div
-          className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
-          onDrop={handleDrop}
-          onDragOver={(e) => e.preventDefault()}
-          onClick={() => fileInputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-          aria-label="Click or drag to upload Excel file"
-          onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
-        >
-          <input
-            id="excel-file-input"
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.csv"
-            onChange={handleFileChange}
-            className="sr-only"
-          />
-          {file ? (
-            <div className="drop-zone__file">
-              <span aria-hidden="true">📄</span>
-              <div>
-                <div className="drop-zone__filename">{file.name}</div>
-                <div className="text-muted" style={{ fontSize: '0.8rem' }}>
-                  {(file.size / 1024).toFixed(1)} KB — Comparing against database…
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="drop-zone__prompt">
-              <span className="drop-zone__icon" aria-hidden="true">📂</span>
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Drop your Excel file here</div>
-                <div className="text-muted" style={{ fontSize: '0.85rem' }}>or click to browse — .xlsx files only</div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {parsing && (
-        <div className="alert alert-info mt-4" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-          <span>Parsing sheets and computing visual diff against existing records…</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="alert alert-error mt-4" role="alert">
-          <span>⚠️</span>
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Visual Diff Preview Modal / Component */}
-      {parsedSheets && !results && (
-        <FilePreview
-          parsedSheets={parsedSheets}
-          onConfirm={handleConfirmImport}
-          onCancel={handleCancelPreview}
-          importing={loading}
-        />
-      )}
-
-      {progress && (
-        <div className="alert alert-info mt-4">
-          <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-          <span>{progress}</span>
-        </div>
-      )}
-
-      {/* Results banner */}
-      {results && (
-        <div className="results-card card mt-6">
-          <div className="results-header">
-            <span style={{ fontSize: '1.5rem' }}>🎉</span>
+        {/* Template Download */}
+        <div className="template-download-box">
+          <div className="template-download-info">
+            <span className="template-download-icon" aria-hidden="true">📋</span>
             <div>
-              <h3>Import Complete!</h3>
-              <p className="text-muted" style={{ fontSize: '0.88rem' }}>
-                Your gradebook has been synchronized with Supabase.
-              </p>
+              <div className="template-download-title">Don't have the format yet?</div>
+              <div className="template-download-sub">
+                Download a ready-to-fill Excel template with sample data and instructions.
+              </div>
             </div>
           </div>
+          <div className="template-download-action">
+            <input
+              id="template-section-input"
+              type="text"
+              className="form-input"
+              placeholder="Section name (e.g. BSIT-3A)"
+              value={templateSection}
+              onChange={(e) => setTemplateSection(e.target.value)}
+              style={{ width: 180, padding: '8px 12px', fontSize: '0.85rem' }}
+            />
+            <button
+              id="download-template-btn"
+              className="btn btn-success"
+              onClick={handleDownloadTemplate}
+              disabled={downloading}
+            >
+              {downloading ? 'Generating…' : '⬇ Download Template'}
+            </button>
+          </div>
+        </div>
 
-          <div className="results-list">
-            {results.map((r, i) => (
-              <div key={i} className="result-item">
-                <div className="result-item__title">📂 {r.sectionName}</div>
-                <div className="result-item__stats">
-                  <span>✓ {r.studentsProcessed} students</span>
-                  <span>✓ {r.activitiesProcessed} activities</span>
-                  {r.archivedCount > 0 && (
-                    <span className="text-muted">({r.archivedCount} archived)</span>
-                  )}
+        {/* Drop zone - shown when no preview active */}
+        {!parsedSheets && !results && (
+          <div
+            className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+            onClick={() => fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            aria-label="Click or drag to upload Excel file"
+            onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+          >
+            <input
+              id="excel-file-input"
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx"
+              onChange={handleFileChange}
+              className="sr-only"
+            />
+            {file ? (
+              <div className="drop-zone__file">
+                <span aria-hidden="true">📄</span>
+                <div>
+                  <div className="drop-zone__filename">{file.name}</div>
+                  <div className="text-muted" style={{ fontSize: '0.8rem' }}>
+                    {(file.size / 1024).toFixed(1)} KB — Comparing against database…
+                  </div>
                 </div>
               </div>
-            ))}
+            ) : (
+              <div className="drop-zone__prompt">
+                <span className="drop-zone__icon" aria-hidden="true">📂</span>
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Drop your Excel file here</div>
+                  <div className="text-muted" style={{ fontSize: '0.85rem' }}>or click to browse — .xlsx files only</div>
+                </div>
+              </div>
+            )}
           </div>
+        )}
 
-          <button
-            className="btn btn-secondary mt-4"
-            onClick={() => setResults(null)}
-          >
-            Upload Another File
-          </button>
+        {parsing && (
+          <div className="alert alert-info mt-4" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+            <span>Parsing sheets and computing visual diff against existing records…</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="alert alert-error mt-4" role="alert">
+            <span>⚠️</span>
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Visual Diff Preview Modal / Component */}
+        {parsedSheets && !results && (
+          <FilePreview
+            parsedSheets={parsedSheets}
+            onConfirm={handleConfirmImport}
+            onCancel={handleCancelPreview}
+            importing={loading}
+          />
+        )}
+
+        {progress && (
+          <div className="alert alert-info mt-4">
+            <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+            <span>{progress}</span>
+          </div>
+        )}
+
+        {/* Results banner */}
+        {results && (
+          <div className="results-card card mt-6">
+            <div className="results-header">
+              <span style={{ fontSize: '1.5rem' }}>🎉</span>
+              <div>
+                <h3>Import Complete!</h3>
+                <p className="text-muted" style={{ fontSize: '0.88rem' }}>
+                  Your gradebook has been synchronized with Supabase.
+                </p>
+              </div>
+            </div>
+
+            <div className="results-list">
+              {results.map((r, i) => (
+                <div key={i} className="result-item">
+                  <div className="result-item__title">📂 {r.sectionName}</div>
+                  <div className="result-item__stats">
+                    <span>✓ {r.studentsProcessed} students</span>
+                    <span>✓ {r.activitiesProcessed} activities</span>
+                    {r.archivedCount > 0 && (
+                      <span className="text-muted">({r.archivedCount} archived)</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              className="btn btn-secondary mt-4"
+              onClick={() => setResults(null)}
+            >
+              Upload Another File
+            </button>
+          </div>
+        )}
+
+        {/* Toast Container */}
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}>
+          {toasts.map(toast => (
+            <div
+              key={toast.id}
+              style={{
+                padding: '12px 16px',
+                background: '#fff',
+                color: '#333',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                borderRadius: '6px',
+                borderLeft: `4px solid ${getToastColor(toast.type)}`,
+                animation: 'slideInFade 0.3s ease-out forwards',
+                maxWidth: '300px',
+                wordWrap: 'break-word',
+                fontSize: '0.9rem'
+              }}
+            >
+              {toast.message}
+            </div>
+          ))}
         </div>
-      )}
-    </div>
-  );
+      </div>
+    );
+  } catch (err) {
+    return (
+      <div className="alert alert-error">
+        <h3>Component Error</h3>
+        <p>Something went wrong rendering the Excel Uploader. Please refresh the page.</p>
+        <pre>{err.message}</pre>
+      </div>
+    );
+  }
 }
