@@ -338,23 +338,31 @@ export default function ExcelUploader({ onUploadSuccess }) {
 
         {/* Drop zone - shown when no preview active */}
         {!parsedSheets && !results && (
-          <div
+          <label
+            htmlFor="excel-file-input"
             className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
-            onClick={() => fileInputRef.current?.click()}
-            role="button"
-            tabIndex={0}
-            aria-label="Click or drag to upload Excel file"
-            onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+            style={{ display: 'block', cursor: 'pointer' }}
           >
             <input
               id="excel-file-input"
               ref={fileInputRef}
               type="file"
-              accept=".xlsx"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               onChange={handleFileChange}
-              className="sr-only"
+              onClick={(e) => { e.target.value = null; }}
+              style={{
+                position: 'absolute',
+                width: '1px',
+                height: '1px',
+                padding: 0,
+                margin: '-1px',
+                overflow: 'hidden',
+                clip: 'rect(0,0,0,0)',
+                whiteSpace: 'nowrap',
+                border: 0,
+              }}
             />
             {file ? (
               <div className="drop-zone__file">
@@ -370,12 +378,22 @@ export default function ExcelUploader({ onUploadSuccess }) {
               <div className="drop-zone__prompt">
                 <span className="drop-zone__icon" aria-hidden="true">📂</span>
                 <div>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Drop your Excel file here</div>
-                  <div className="text-muted" style={{ fontSize: '0.85rem' }}>or click to browse — .xlsx files only</div>
+                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: '1.05rem' }}>Drop your Excel file here</div>
+                  <div className="text-muted" style={{ fontSize: '0.85rem', marginBottom: 12 }}>
+                    or tap below to browse from your device (.xlsx only)
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ pointerEvents: 'none' }}
+                    tabIndex={-1}
+                  >
+                    📁 Select Excel File
+                  </button>
                 </div>
               </div>
             )}
-          </div>
+          </label>
         )}
 
         {parsing && (
@@ -449,12 +467,15 @@ export default function ExcelUploader({ onUploadSuccess }) {
         {/* Toast Container */}
         <div style={{
           position: 'fixed',
-          top: '20px',
-          right: '20px',
-          zIndex: 9999,
+          top: '16px',
+          right: '16px',
+          left: '16px',
+          zIndex: 99999,
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px'
+          alignItems: 'flex-end',
+          pointerEvents: 'none',
+          gap: '8px'
         }}>
           {toasts.map(toast => (
             <div
@@ -463,13 +484,16 @@ export default function ExcelUploader({ onUploadSuccess }) {
                 padding: '12px 16px',
                 background: '#fff',
                 color: '#333',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                borderRadius: '6px',
-                borderLeft: `4px solid ${getToastColor(toast.type)}`,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+                borderRadius: '8px',
+                borderLeft: `5px solid ${getToastColor(toast.type)}`,
                 animation: 'slideInFade 0.3s ease-out forwards',
-                maxWidth: '300px',
+                maxWidth: '420px',
+                width: 'auto',
+                pointerEvents: 'auto',
                 wordWrap: 'break-word',
-                fontSize: '0.9rem'
+                fontSize: '0.9rem',
+                fontWeight: 500
               }}
             >
               {toast.message}

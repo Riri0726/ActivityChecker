@@ -13,6 +13,23 @@ function extractCellValue(cellVal) {
   return String(cellVal);
 }
 
+async function readFileBuffer(file) {
+  if (typeof file.arrayBuffer === 'function') {
+    try {
+      const buf = await file.arrayBuffer();
+      if (buf && buf.byteLength > 0) return buf;
+    } catch (e) {
+      console.warn('file.arrayBuffer() failed, falling back to FileReader:', e);
+    }
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (e) => reject(new Error('FileReader failed to read the file: ' + (e?.target?.error?.message || 'unknown error')));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 /**
  * Parse an Excel workbook (.xlsx) uploaded by the admin.
  *
@@ -34,7 +51,7 @@ function extractCellValue(cellVal) {
  */
 export async function parseWorkbook(file) {
   try {
-    const buffer = await file.arrayBuffer();
+    const buffer = await readFileBuffer(file);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
 
@@ -54,10 +71,22 @@ export async function parseWorkbook(file) {
       const warnings = [];
       const info     = [];
 
-      // Read all rows as arrays
+      // Read all rows safely (ExcelJS can return Array or sparse Object for row.values)
       const rows = [];
       worksheet.eachRow({ includeEmpty: true }, (row) => {
-        rows.push(row.values.slice(1));
+        const rowVals = [];
+        if (Array.isArray(row.values)) {
+          for (let i = 1; i < row.values.length; i++) {
+            rowVals.push(row.values[i]);
+          }
+        } else if (row.values && typeof row.values === 'object') {
+          const keys = Object.keys(row.values).map(Number).filter((n) => !isNaN(n));
+          const maxCol = keys.length > 0 ? Math.max(...keys) : 0;
+          for (let i = 1; i <= maxCol; i++) {
+            rowVals.push(row.values[i] !== undefined ? row.values[i] : null);
+          }
+        }
+        rows.push(rowVals);
       });
 
       // Filter out completely empty rows for parsing

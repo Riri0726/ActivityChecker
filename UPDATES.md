@@ -8,6 +8,9 @@ This patch release fixes a critical bug where Excel file uploads would silently 
 ---
 
 ### 2. Bug Fixes
+- **Mobile Touch File Selection Drop/Cancel**: On iOS Safari and Android Chrome, triggering file inputs via delegated synthetic `div.onClick` events was suppressed or double-triggered/canceled. Converted the drop-zone to a native `<label htmlFor="excel-file-input">` with touch-friendly button, and added `onClick={(e) => { e.target.value = null; }}` on the input so selecting the same file repeatedly always triggers `onChange`.
+- **Mobile Browser ArrayBuffer Fallback**: Added `FileReader.readAsArrayBuffer` fallback for mobile browsers or in-app webviews where `File.arrayBuffer()` is unsupported or rejects.
+- **Sparse Row Object Crash**: ExcelJS creates Object rows (`{ 1: val, 2: val }`) instead of Arrays when files are edited and exported from mobile office apps (such as Google Sheets mobile). Calling `.slice(1)` crashed row parsing with `row.values.slice is not a function`. Safe extraction now handles both Arrays and Objects.
 - **Silent Upload Failure**: The `processFile` and `computeWorkbookDiff` functions could throw errors that were caught but not surfaced to the user. Now all errors produce visible toast notifications and error banners.
 - **Formula Cell Corruption**: ExcelJS parses formula cells as objects (`{formula: '=SUM(A1:B1)', result: 50}`). The old code used `String(cellVal)` which produced `"[object Object]"`, causing all formula-based scores to be marked as `null`/missing. The new `extractCellValue()` helper correctly reads `.result` from formula cells, `.richText` from rich text cells, and `.text` from text objects.
 - **CSV Crash**: The file input accepted `.csv` files but the XLSX parser crashed on non-ZIP formats. Now only `.xlsx` is accepted; `.csv` and `.xls` are rejected with a clear toast message.
