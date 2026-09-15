@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and Sema
 
 ---
 
+## [v0.7.1] - 2026-09-15
+
+### Fixed
+- **Excel Upload Silent Failure** — Upload on mobile (and occasionally desktop) would silently fail with no feedback. Added comprehensive error handling with `console.error` logging and user-facing error messages throughout the upload pipeline.
+- **Formula Cell Parsing Bug** (`excelParser.js`) — ExcelJS formula cells (`{formula: '...', result: 50}`) and rich text cells (`{richText: [...]}`) were converted to `"[object Object]"` by `String()`, causing `parseFloat` to return `NaN` and marking all formula-based scores as missing. Added `extractCellValue()` helper to correctly extract values from all ExcelJS cell types.
+- **CSV Files Accepted but Unsupported** — File input accepted `.csv` files, but the parser only supports `.xlsx`. CSV selection caused an unhandled crash. Now restricted to `.xlsx` only with clear rejection messages for `.csv` and `.xls` files.
+
+### Added
+- **Toast Notification System** (`ExcelUploader.jsx`) — Inline toast notifications (top-right, auto-dismiss after 5s) with color-coded types: 🔴 error, 🟢 success, 🟡 warning, 🔵 info. Toasts appear for file parsing start/success/failure, import start/success/failure, and file validation rejections.
+- **Global React Error Boundary** (`App.jsx`) — Catches unhandled render errors across the entire application. Displays a friendly fallback UI with error details and "Reload Page" / "Try Again" buttons instead of a blank white screen.
+- **Graceful Diff Computation** (`ExcelUploader.jsx`) — `computeWorkbookDiff` now wrapped in try/catch; Supabase query failures during diff are logged but no longer crash the upload flow.
+
+---
+
 ## [v0.7.0] - 2026-09-09
 
 ### Added

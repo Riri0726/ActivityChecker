@@ -1,5 +1,26 @@
 # System Updates & Release Specifications
 
+## [v0.7.1] - 2026-09-15: Excel Upload Fix, Toast Notifications & Error Boundary
+
+### 1. Overview
+This patch release fixes a critical bug where Excel file uploads would silently fail (especially on mobile browsers) with no user feedback. Adds a toast notification system, fixes formula cell parsing, and introduces a global React Error Boundary.
+
+---
+
+### 2. Bug Fixes
+- **Silent Upload Failure**: The `processFile` and `computeWorkbookDiff` functions could throw errors that were caught but not surfaced to the user. Now all errors produce visible toast notifications and error banners.
+- **Formula Cell Corruption**: ExcelJS parses formula cells as objects (`{formula: '=SUM(A1:B1)', result: 50}`). The old code used `String(cellVal)` which produced `"[object Object]"`, causing all formula-based scores to be marked as `null`/missing. The new `extractCellValue()` helper correctly reads `.result` from formula cells, `.richText` from rich text cells, and `.text` from text objects.
+- **CSV Crash**: The file input accepted `.csv` files but the XLSX parser crashed on non-ZIP formats. Now only `.xlsx` is accepted; `.csv` and `.xls` are rejected with a clear toast message.
+
+---
+
+### 3. New Features
+- **Toast Notification System** (`ExcelUploader.jsx`): Fixed-position toast container (top-right, z-index 9999) with auto-dismissing notifications (5 seconds). Color-coded left border: red (error), green (success), yellow (warning), blue (info). Covers file reading, parse success/failure, import progress, and validation rejections.
+- **Global Error Boundary** (`App.jsx`): React class component wrapping the entire app. Catches unhandled render errors and displays a centered fallback card with warning icon, error message, and "Reload Page" / "Try Again" action buttons.
+- **Graceful Diff Degradation**: `computeWorkbookDiff` errors are logged but no longer block the upload preview. The diff simply shows as empty if Supabase queries fail.
+
+---
+
 ## [v0.5.0] - 2026-09-07: Appeals Image Lifecycle & Dynamic Make-Up Activity Repository
 
 ### 1. Overview
