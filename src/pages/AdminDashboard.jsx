@@ -9,6 +9,7 @@ import MakeupTaskManager from '../components/MakeupTaskManager.jsx';
 import SubjectManager from '../components/SubjectManager.jsx';
 import TeacherManager from '../components/TeacherManager.jsx';
 import { getPendingCounts, updateAdminTheme } from '../services/adminService.js';
+import DarkModeToggle from '../components/DarkModeToggle.jsx';
 import './AdminDashboard.css';
 
 export default function AdminDashboard() {
@@ -166,6 +167,9 @@ export default function AdminDashboard() {
               ))}
             </div>
           </div>
+
+          {/* Dark Mode Toggle Switch */}
+          <DarkModeToggle variant="switch" />
 
           <div className="sidebar-user">
             <div className="sidebar-user-avatar" aria-hidden="true">

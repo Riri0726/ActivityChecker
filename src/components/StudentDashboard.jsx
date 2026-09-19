@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import AppealForm from './AppealForm.jsx';
 import MakeupRequestForm from './MakeupRequestForm.jsx';
+import DarkModeToggle from './DarkModeToggle.jsx';
 import { submitMakeupProofLink } from '../services/studentService.js';
 import './StudentDashboard.css';
 
@@ -117,6 +118,7 @@ export default function StudentDashboard({
               </div>
             </div>
           </div>
+          <DarkModeToggle variant="header" />
         </header>
 
         {/* Score Summary (top) */}

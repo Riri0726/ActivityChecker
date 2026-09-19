@@ -262,8 +262,8 @@ export async function updateStudent(studentId, { surname, firstName, studentNo }
   if (firstName !== undefined) payload.first_name = firstName.trim();
   if (studentNo !== undefined) payload.student_no = studentNo?.trim() || null;
 
-  // Regenerate access_key if name changed
-  if (payload.surname || payload.first_name) {
+  // Regenerate access_key if surname or student_no changed (both affect login credentials)
+  if (payload.surname || payload.first_name || payload.student_no !== undefined) {
     // Fetch current data to build the new key
     const { data: current } = await supabase
       .from('students')

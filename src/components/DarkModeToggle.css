@@ -1,0 +1,114 @@
+/* Dark Mode Toggle Components */
+
+/* 1. Floating round/pill button (for StudentLookup, AdminLogin) */
+.dark-mode-floating-btn {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+  user-select: none;
+}
+
+.dark-mode-floating-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--color-primary);
+}
+
+.dark-mode-floating-btn:active {
+  transform: translateY(0);
+}
+
+.dark-mode-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* 2. Compact header button (for StudentDashboard header) */
+.dark-mode-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  background: var(--bg-card-alt);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.dark-mode-header-btn:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+/* 3. Switch variant (for AdminDashboard sidebar) */
+.dark-mode-sidebar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 var(--sp-3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: var(--sp-3);
+}
+
+.dark-mode-sidebar-label {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+.dark-mode-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: #334155;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  padding: 2px;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+}
+
+.dark-mode-switch.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.dark-mode-switch-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateX(0);
+}
+
+.dark-mode-switch.active .dark-mode-switch-thumb {
+  transform: translateX(20px);
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import DarkModeToggle from '../components/DarkModeToggle.jsx';
 import './AdminLogin.css';
 
 export default function AdminLogin() {
@@ -35,6 +36,7 @@ export default function AdminLogin() {
 
   return (
     <div className="page-center admin-login-page">
+      <DarkModeToggle variant="floating" />
       <div className="admin-login-bg" aria-hidden="true" />
 
       <div className="admin-login-card card">

@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and Sema
 
 ---
 
+## [v0.8.1] - 2026-09-19
+
+### Fixed
+- **Student Login After Student Number Change** (`adminService.js`) — Changing a student's student number (e.g. `20252236` → `20252213`) now correctly regenerates the `access_key` used for login credentials. Previously, the `access_key` was only recalculated when the surname or first name changed, leaving the old key in place and preventing students from logging in with the updated number.
+
+---
+
+## [v0.8.0] - 2026-09-09
+
+### Added
+- **Dark Mode On/Off Toggle** — Comprehensive theme brightness toggle with state persistence:
+  - **Admin Dashboard**: Sleek toggle switch in the sidebar footer alongside the theme color picker.
+  - **Student Portal & Lookup**: Glassmorphic floating toggle button in the top-right corner.
+  - **Student Dashboard**: Clean, responsive theme mode toggle right inside the header navigation.
+  - **Admin Login**: Quick toggle on the login page for comfortable viewing before authentication.
+  - **Persistence & Anti-Flicker**: Saves choice to `localStorage` (`app-color-mode`) with inline pre-mount script preventing theme flash on page load.
+  - **Automatic System Fallback**: Uses OS dark mode preferences when no explicit override is chosen.
+
+---
+
 ## [v0.7.1] - 2026-09-15
 
 ### Fixed

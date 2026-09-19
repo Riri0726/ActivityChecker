@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { lookupStudent, getPublicSubjects, getPublicSections } from '../services/studentService.js';
 import StudentDashboard from '../components/StudentDashboard.jsx';
+import DarkModeToggle from '../components/DarkModeToggle.jsx';
 import './StudentLookup.css';
 
 export default function StudentLookup() {
@@ -87,6 +88,7 @@ export default function StudentLookup() {
 
   return (
     <div className="page-center lookup-page">
+      <DarkModeToggle variant="floating" />
       <div className="lookup-bg-blob lookup-bg-blob--1" aria-hidden="true" />
       <div className="lookup-bg-blob lookup-bg-blob--2" aria-hidden="true" />
 

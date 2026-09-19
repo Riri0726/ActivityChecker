@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { DarkModeProvider } from './context/DarkModeContext.jsx';
 import StudentLookup from './pages/StudentLookup.jsx';
 import AdminLogin from './pages/AdminLogin.jsx';
 import AdminDashboard from './pages/AdminDashboard.jsx';
@@ -103,9 +104,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <ErrorBoundary>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
+        <DarkModeProvider>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </DarkModeProvider>
       </ErrorBoundary>
     </BrowserRouter>
   );
