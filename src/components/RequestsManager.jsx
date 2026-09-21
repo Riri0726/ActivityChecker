@@ -16,7 +16,14 @@ export default function RequestsManager({ onUpdate }) {
   const [requests, setRequests] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('pending_review');
+  const [filter, setFilter] = useState(
+    () => localStorage.getItem('activity_tracker_requests_filter') || 'pending_review'
+  );
+
+  const handleFilterChange = (newFilter) => {
+    setFilter(newFilter);
+    localStorage.setItem('activity_tracker_requests_filter', newFilter);
+  };
   const [saving, setSaving] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -162,7 +169,7 @@ export default function RequestsManager({ onUpdate }) {
             key={tab.id}
             className={`btn ${filter === tab.id ? 'btn-primary' : 'btn-secondary'}`}
             style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '20px', minHeight: '44px' }}
-            onClick={() => setFilter(tab.id)}
+            onClick={() => handleFilterChange(tab.id)}
           >
             {tab.label}
           </button>

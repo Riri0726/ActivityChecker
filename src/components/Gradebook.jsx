@@ -6,7 +6,9 @@ import { useAuth } from '../context/AuthContext.jsx';
 export default function Gradebook() {
   const { selectedSubjectId, subjects, adminProfile, effectiveAdminId } = useAuth();
   const [sections, setSections] = useState([]);
-  const [selectedSection, setSelectedSection] = useState('');
+  const [selectedSection, setSelectedSection] = useState(
+    () => localStorage.getItem('activity_tracker_selected_section') || ''
+  );
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [savingCell, setSavingCell] = useState(null);
@@ -52,10 +54,16 @@ export default function Gradebook() {
       const secList = await getSections(selectedSubjectId || null, effectiveAdminId);
       setSections(secList);
       if (secList.length > 0) {
-        if (!secList.some((s) => s.id === selectedSection)) {
-          setSelectedSection(secList[0].id);
-          loadGradebook(secList[0].id);
-        }
+        const stored = localStorage.getItem('activity_tracker_selected_section');
+        const targetId = (stored && secList.some((s) => s.id === stored))
+          ? stored
+          : (selectedSection && secList.some((s) => s.id === selectedSection))
+            ? selectedSection
+            : secList[0].id;
+
+        setSelectedSection(targetId);
+        localStorage.setItem('activity_tracker_selected_section', targetId);
+        loadGradebook(targetId);
       } else {
         setSelectedSection('');
         setData(null);
@@ -72,6 +80,7 @@ export default function Gradebook() {
   const handleSectionChange = (e) => {
     const id = e.target.value;
     setSelectedSection(id);
+    localStorage.setItem('activity_tracker_selected_section', id);
     setData(null);
     loadGradebook(id);
   };

@@ -7,8 +7,9 @@ const STATUS_OPTIONS = ['pending', 'reviewed', 'resolved', 'rejected'];
 export default function AppealsManager({ onUpdate }) {
   const { effectiveAdminId } = useAuth();
   const [appeals, setAppeals] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('pending');
+  const [filter, setFilter] = useState(
+    () => localStorage.getItem('activity_tracker_appeals_filter') || 'pending'
+  );
   const [expanded, setExpanded] = useState(null);
   const [remarks, setRemarks] = useState({});
   const [adjustedScores, setAdjustedScores] = useState({});
@@ -45,6 +46,12 @@ export default function AppealsManager({ onUpdate }) {
   useEffect(() => {
     loadAppeals();
   }, [loadAppeals]);
+
+  const handleFilterChange = (newFilter) => {
+    setFilter(newFilter);
+    localStorage.setItem('activity_tracker_appeals_filter', newFilter);
+    setExpanded(null);
+  };
 
   const handleStatusUpdate = async (appeal, newStatus) => {
     const appealId = appeal.id;
@@ -128,7 +135,7 @@ export default function AppealsManager({ onUpdate }) {
             key={s || 'all'}
             className={`btn ${filter === s ? 'btn-primary' : 'btn-secondary'}`}
             style={{ fontSize: '0.8rem', padding: '6px 14px', borderRadius: '20px' }}
-            onClick={() => { setFilter(s); setExpanded(null); }}
+            onClick={() => handleFilterChange(s)}
           >
             {s ? s.charAt(0).toUpperCase() + s.slice(1) : 'All'}
           </button>
