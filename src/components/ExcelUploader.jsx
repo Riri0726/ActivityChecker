@@ -69,11 +69,15 @@ export default function ExcelUploader({ onUploadSuccess }) {
 
         const dbStudentMap = new Map();
         const dbStudentNameMap = new Map();
+        const dbStudentNoMap = new Map();
         (dbStudents || []).forEach((s) => {
           dbStudentMap.set(s.access_key, s.id);
           // Build name-based map for matching
           const nameKey = `${(s.surname || '').trim().toUpperCase()}_${(s.first_name || '').trim().toUpperCase()}`;
           dbStudentNameMap.set(nameKey, s);
+          if (s.student_no) {
+            dbStudentNoMap.set(s.student_no.toString().trim().toUpperCase(), s);
+          }
         });
 
         // Fetch existing activities in DB
@@ -115,12 +119,19 @@ export default function ExcelUploader({ onUploadSuccess }) {
         const uploadedNameKeys = new Set(
           students.map((s) => `${(s.surname || '').trim().toUpperCase()}_${(s.firstName || '').trim().toUpperCase()}`)
         );
+        const uploadedStudentNos = new Set(
+          students.filter((s) => s.studentNo).map((s) => s.studentNo.toString().trim().toUpperCase())
+        );
         const uploadedAccessKeys = new Set(students.map((s) => s.accessKey));
         
         const removedStudents = (dbStudents || []).filter((s) => {
           const nameKey = `${(s.surname || '').trim().toUpperCase()}_${(s.first_name || '').trim().toUpperCase()}`;
-          // Student is "removed" if neither their name nor access_key matches any uploaded student
-          return !uploadedNameKeys.has(nameKey) && !uploadedAccessKeys.has(s.access_key);
+          const sno = s.student_no ? s.student_no.toString().trim().toUpperCase() : null;
+          // Student is "removed" if neither their student_no, name, nor access_key matches any uploaded student
+          const matchedByNo = sno && uploadedStudentNos.has(sno);
+          const matchedByName = uploadedNameKeys.has(nameKey);
+          const matchedByKey = uploadedAccessKeys.has(s.access_key);
+          return !matchedByNo && !matchedByName && !matchedByKey;
         });
 
         const addedStudents = [];
@@ -130,8 +141,11 @@ export default function ExcelUploader({ onUploadSuccess }) {
         for (let i = 0; i < students.length; i++) {
           const st = students[i];
           const nameKey = `${(st.surname || '').trim().toUpperCase()}_${(st.firstName || '').trim().toUpperCase()}`;
+          const cleanNo = st.studentNo ? st.studentNo.toString().trim().toUpperCase() : null;
+
+          const dbStudentByNo = cleanNo ? dbStudentNoMap.get(cleanNo) : null;
           const dbStudentByName = dbStudentNameMap.get(nameKey);
-          const dbStudentId = dbStudentByName?.id || dbStudentMap.get(st.accessKey);
+          const dbStudentId = dbStudentByNo?.id || dbStudentByName?.id || dbStudentMap.get(st.accessKey);
           
           if (!dbStudentId) {
             addedStudents.push(st);

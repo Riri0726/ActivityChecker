@@ -237,10 +237,32 @@ export async function deleteSection(sectionId) {
 // ============================================================
 
 /**
+ * Find a student by student number within a section (case-insensitive).
+ * Used for student_no-based matching during Excel re-upload (e.g. when surname/name changes).
+ */
+export async function findStudentByNo(sectionId, studentNo) {
+  if (!studentNo || !studentNo.toString().trim()) return null;
+  const cleanNo = studentNo.toString().trim();
+  const { data, error } = await supabase
+    .from('students')
+    .select('id, surname, first_name, student_no, access_key')
+    .eq('section_id', sectionId)
+    .ilike('student_no', cleanNo)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('findStudentByNo warning:', error.message);
+    return null;
+  }
+  return data;
+}
+
+/**
  * Find a student by full name within a section (case-insensitive).
  * Used for name-based matching during Excel re-upload to prevent duplication.
  */
 export async function findStudentByName(sectionId, surname, firstName) {
+  if (!surname || !firstName) return null;
   const { data, error } = await supabase
     .from('students')
     .select('id, surname, first_name, student_no, access_key')
@@ -277,41 +299,64 @@ export async function upsertStudent(sectionId, { surname, firstName, studentNo, 
 }
 
 /**
- * Smart upsert: match by name first (handles student_no changes), then fallback to access_key.
- * Prevents duplicate students when student_no is updated in Excel.
+ * Smart upsert with bidirectional matching:
+ * 1. Match by student_no first (if provided) -> allows changing surname / first name in Excel without creating duplicates
+ * 2. Match by full name second -> allows changing student_no in Excel without creating duplicates
+ * 3. Fallback to access_key / new student
+ * Automatically updates student_no, surname, first_name, and access_key in the DB to keep records synchronized.
  */
 export async function smartUpsertStudent(sectionId, { surname, firstName, studentNo, accessKey }) {
-  // 1. Try to find existing student by name
-  const existing = await findStudentByName(sectionId, surname, firstName);
+  const cleanSurname = (surname || '').trim();
+  const cleanFirstName = (firstName || '').trim();
+  const cleanStudentNo = studentNo ? studentNo.toString().trim() : null;
+  const newAccessKey = accessKey || (cleanSurname + (cleanStudentNo || '')).toUpperCase().replace(/\s/g, '');
+
+  let existing = null;
+
+  // 1. Try to find existing student by student_no (if studentNo is provided)
+  if (cleanStudentNo) {
+    existing = await findStudentByNo(sectionId, cleanStudentNo);
+  }
+
+  // 2. If not found by student_no, try to find by name (case-insensitive)
+  if (!existing && cleanSurname && cleanFirstName) {
+    existing = await findStudentByName(sectionId, cleanSurname, cleanFirstName);
+  }
 
   if (existing) {
-    // Update existing student's student_no and access_key if changed
-    const newAccessKey = accessKey;
+    // Check if any fields changed (surname, first_name, student_no, or access_key)
     const needsUpdate =
-      existing.student_no !== (studentNo || null) ||
+      (existing.surname || '').trim().toUpperCase() !== cleanSurname.toUpperCase() ||
+      (existing.first_name || '').trim().toUpperCase() !== cleanFirstName.toUpperCase() ||
+      (existing.student_no ? existing.student_no.trim() : null) !== cleanStudentNo ||
       existing.access_key !== newAccessKey;
 
     if (needsUpdate) {
       const { data, error } = await supabase
         .from('students')
         .update({
-          student_no: studentNo || null,
+          surname: cleanSurname,
+          first_name: cleanFirstName,
+          student_no: cleanStudentNo,
           access_key: newAccessKey,
-          surname: surname.trim(),
-          first_name: firstName.trim(),
         })
         .eq('id', existing.id)
         .select('id')
         .single();
 
-      if (error) throw new Error(`Failed to update student "${surname} ${firstName}": ${error.message}`);
+      if (error) throw new Error(`Failed to update student "${cleanSurname} ${cleanFirstName}": ${error.message}`);
       return data;
     }
     return { id: existing.id };
   }
 
-  // 2. Fallback: upsert by access_key (new student)
-  return upsertStudent(sectionId, { surname, firstName, studentNo, accessKey });
+  // 3. Fallback: upsert by access_key (new student)
+  return upsertStudent(sectionId, {
+    surname: cleanSurname,
+    firstName: cleanFirstName,
+    studentNo: cleanStudentNo,
+    accessKey: newAccessKey,
+  });
 }
 
 export async function updateStudent(studentId, { surname, firstName, studentNo }) {

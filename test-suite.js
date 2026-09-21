@@ -46,9 +46,9 @@ runTest('deriveAccessKey: Generates consistent normalized uppercase keys', () =>
 });
 
 // -------------------------------------------------------------
-// Test 2: Name Matching Deduplication Logic (Casuncad Scenario)
+// Test 2: Bidirectional Student Matching Logic
 // -------------------------------------------------------------
-runTest('Name Deduplication Logic: Matches student by surname + first name', () => {
+runTest('Bidirectional Matching: Matches student by name when student_no changes', () => {
   const existingDbStudents = [
     {
       id: 'student-123',
@@ -88,6 +88,38 @@ runTest('Name Deduplication Logic: Matches student by surname + first name', () 
   // Generate updated access key
   const updatedAccessKey = deriveAccessKey(incomingParsedStudent.surname, incomingParsedStudent.studentNo);
   assert.strictEqual(updatedAccessKey, 'CASUNCAD2023-99999');
+});
+
+runTest('Bidirectional Matching: Matches student by student_no when surname / first name changes', () => {
+  const existingDbStudents = [
+    {
+      id: 'student-123',
+      section_id: 'sec-1',
+      surname: 'Santos',
+      first_name: 'Maria',
+      student_no: '2023-00001',
+      access_key: 'SANTOS2023-00001',
+    },
+  ];
+
+  // Simulated re-upload where surname was corrected/changed from Santos to Reyes (same student_no)
+  const incomingParsedStudent = {
+    surname: 'Reyes',
+    firstName: 'Maria',
+    studentNo: '2023-00001',
+  };
+
+  // Find match by student_no first
+  const matchByNo = existingDbStudents.find(
+    s => s.student_no && s.student_no.trim().toUpperCase() === incomingParsedStudent.studentNo.trim().toUpperCase()
+  );
+
+  assert.ok(matchByNo, 'Should match existing student by student_no');
+  assert.strictEqual(matchByNo.id, 'student-123', 'Should keep existing record ID and update surname');
+
+  // Generate new access key
+  const newAccessKey = deriveAccessKey(incomingParsedStudent.surname, incomingParsedStudent.studentNo);
+  assert.strictEqual(newAccessKey, 'REYES2023-00001');
 });
 
 // -------------------------------------------------------------
