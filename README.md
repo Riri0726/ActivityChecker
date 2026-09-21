@@ -1,6 +1,6 @@
 # Student Activity Checker
 
-**Current Version: v0.8.1**
+**Current Version: v0.9.0**
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Riri0726/ActivityChecker)
 

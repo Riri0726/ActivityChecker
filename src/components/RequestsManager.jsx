@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getMakeupRequests, decideMakeupRequest, getMakeupTasks } from '../services/adminService.js';
+import { getMakeupRequests, decideMakeupRequest, getMakeupTasks, deleteMakeupRequest } from '../services/adminService.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const STATUS_TABS = [
@@ -12,7 +12,7 @@ const STATUS_TABS = [
 ];
 
 export default function RequestsManager({ onUpdate }) {
-  const { selectedSubjectId } = useAuth();
+  const { selectedSubjectId, effectiveAdminId } = useAuth();
   const [requests, setRequests] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,13 +25,18 @@ export default function RequestsManager({ onUpdate }) {
   const [decisionModal, setDecisionModal] = useState(null); // { request, decision: 'approved' | 'rejected' | 'completed' }
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [remarkError, setRemarkError] = useState('');
+
+  // Delete Modal State
+  const [deleteModal, setDeleteModal] = useState(null); // { requestId, studentName, activityTitle }
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const [reqData, taskData] = await Promise.all([
-        getMakeupRequests({ status: filter || undefined }),
+        getMakeupRequests({ status: filter || undefined, adminId: effectiveAdminId }),
         getMakeupTasks(selectedSubjectId || null),
       ]);
       setRequests(reqData);
@@ -41,7 +46,7 @@ export default function RequestsManager({ onUpdate }) {
     } finally {
       setLoading(false);
     }
-  }, [filter, selectedSubjectId]);
+  }, [filter, selectedSubjectId, effectiveAdminId]);
 
   useEffect(() => {
     loadData();
@@ -50,7 +55,13 @@ export default function RequestsManager({ onUpdate }) {
   const openDecisionModal = (req, decision) => {
     setDecisionModal({ request: req, decision });
     setSelectedTaskId(req.makeup_task_id || (tasks[0]?.id || ''));
-    setRemarks(req.instructor_remarks || '');
+    // Pre-populate default remark for reject
+    setRemarks(
+      decision === 'rejected'
+        ? (req.instructor_remarks || 'Request rejected.')
+        : (req.instructor_remarks || '')
+    );
+    setRemarkError('');
     setError('');
   };
 
@@ -58,6 +69,7 @@ export default function RequestsManager({ onUpdate }) {
     setDecisionModal(null);
     setSelectedTaskId('');
     setRemarks('');
+    setRemarkError('');
   };
 
   const handleConfirmDecision = async () => {
@@ -65,12 +77,13 @@ export default function RequestsManager({ onUpdate }) {
     const { request: req, decision } = decisionModal;
 
     if (decision === 'rejected' && !remarks.trim()) {
-      setError('Please provide instructor remarks/reason when rejecting a request.');
+      setRemarkError('Please provide instructor remarks/reason when rejecting a request.');
       return;
     }
 
     setSaving(req.id);
     setError('');
+    setRemarkError('');
     try {
       const assignedTask = tasks.find((t) => t.id === selectedTaskId);
       await decideMakeupRequest({
@@ -92,6 +105,22 @@ export default function RequestsManager({ onUpdate }) {
       setError(e.message);
     } finally {
       setSaving(null);
+    }
+  };
+
+  const handleDeleteRequest = async () => {
+    if (!deleteModal) return;
+    setDeleteLoading(true);
+    try {
+      await deleteMakeupRequest(deleteModal.requestId);
+      setSuccess(`Makeup request from ${deleteModal.studentName} has been permanently deleted.`);
+      setDeleteModal(null);
+      await loadData();
+      onUpdate?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -132,7 +161,7 @@ export default function RequestsManager({ onUpdate }) {
           <button
             key={tab.id}
             className={`btn ${filter === tab.id ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '20px' }}
+            style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '20px', minHeight: '44px' }}
             onClick={() => setFilter(tab.id)}
           >
             {tab.label}
@@ -152,6 +181,39 @@ export default function RequestsManager({ onUpdate }) {
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {deleteModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 1000, padding: '20px',
+        }}>
+          <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '24px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '1.15rem', fontWeight: 600, color: '#dc2626' }}>
+              🗑️ Delete Make-Up Request
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
+              Permanently delete the make-up request from <strong>{deleteModal.studentName}</strong> for <strong>{deleteModal.activityTitle}</strong>?
+              <br /><br />
+              This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" style={{ minHeight: '44px' }} onClick={() => setDeleteModal(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                style={{ background: '#dc2626', color: '#fff', border: 'none', minHeight: '44px' }}
+                onClick={handleDeleteRequest}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? 'Deleting...' : '🗑️ Delete Permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Decision Modal */}
       {decisionModal && (
         <div style={{
@@ -166,6 +228,7 @@ export default function RequestsManager({ onUpdate }) {
           justifyContent: 'center',
           zIndex: 1000,
           padding: '20px',
+          overflowY: 'auto',
         }}>
           <div className="card" style={{ maxWidth: '540px', width: '100%', padding: '24px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 12px', fontSize: '1.2rem', fontWeight: 600 }}>
@@ -195,6 +258,7 @@ export default function RequestsManager({ onUpdate }) {
                     value={selectedTaskId}
                     onChange={(e) => setSelectedTaskId(e.target.value)}
                     required
+                    style={{ minHeight: '44px' }}
                   >
                     {tasks.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -208,24 +272,35 @@ export default function RequestsManager({ onUpdate }) {
 
             <div style={{ marginBottom: '20px' }}>
               <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '0.85rem' }}>
-                Instructor Remarks / Feedback {decisionModal.decision === 'rejected' && '*'}
+                Instructor Remarks / Feedback {decisionModal.decision === 'rejected' && <span style={{ color: '#dc2626' }}>*</span>}
               </label>
               <textarea
                 className="form-input"
                 rows="3"
                 placeholder={decisionModal.decision === 'rejected' ? 'Explain reason for rejection...' : 'Optional notes or instructions for the student...'}
                 value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
+                onChange={(e) => { setRemarks(e.target.value); setRemarkError(''); }}
                 required={decisionModal.decision === 'rejected'}
+                style={{
+                  minHeight: '44px',
+                  borderColor: remarkError ? '#dc2626' : undefined,
+                  boxShadow: remarkError ? '0 0 0 3px rgba(220,38,38,0.2)' : undefined,
+                }}
               />
+              {remarkError && (
+                <div style={{ fontSize: '0.82rem', color: '#dc2626', marginTop: '4px', fontWeight: 500 }}>
+                  ⚠️ {remarkError}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={closeDecisionModal}>
+              <button className="btn btn-secondary" style={{ minHeight: '44px' }} onClick={closeDecisionModal}>
                 Cancel
               </button>
               <button
                 className={`btn ${decisionModal.decision === 'rejected' ? 'btn-danger' : 'btn-primary'}`}
+                style={{ minHeight: '44px' }}
                 onClick={handleConfirmDecision}
                 disabled={saving === decisionModal.request.id}
               >
@@ -274,7 +349,7 @@ export default function RequestsManager({ onUpdate }) {
                 }}
               >
                 <div style={{ flex: 1, minWidth: '280px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
                     <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--color-heading)' }}>
                       {student?.first_name} {student?.surname}
                     </h3>
@@ -362,14 +437,14 @@ export default function RequestsManager({ onUpdate }) {
                     <>
                       <button
                         className="btn btn-primary"
-                        style={{ fontSize: '0.82rem', padding: '8px 12px' }}
+                        style={{ fontSize: '0.82rem', padding: '8px 12px', minHeight: '44px' }}
                         onClick={() => openDecisionModal(req, 'approved')}
                       >
                         ✓ Approve & Assign
                       </button>
                       <button
                         className="btn btn-secondary"
-                        style={{ fontSize: '0.82rem', padding: '8px 12px', color: '#dc2626' }}
+                        style={{ fontSize: '0.82rem', padding: '8px 12px', color: '#dc2626', minHeight: '44px' }}
                         onClick={() => openDecisionModal(req, 'rejected')}
                       >
                         ✕ Reject
@@ -380,7 +455,7 @@ export default function RequestsManager({ onUpdate }) {
                   {isSubmitted && (
                     <button
                       className="btn btn-primary"
-                      style={{ fontSize: '0.82rem', padding: '8px 12px', background: '#16a34a', borderColor: '#16a34a' }}
+                      style={{ fontSize: '0.82rem', padding: '8px 12px', background: '#16a34a', borderColor: '#16a34a', minHeight: '44px' }}
                       onClick={() => openDecisionModal(req, 'completed')}
                     >
                       ✓ Mark Completed
@@ -392,6 +467,19 @@ export default function RequestsManager({ onUpdate }) {
                       Awaiting student turn-in
                     </div>
                   )}
+
+                  {/* Delete button — always available */}
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.78rem', padding: '6px 10px', color: '#dc2626', minHeight: '44px' }}
+                    onClick={() => setDeleteModal({
+                      requestId: req.id,
+                      studentName: `${student?.first_name} ${student?.surname}`,
+                      activityTitle: activity?.title,
+                    })}
+                  >
+                    🗑️ Delete Request
+                  </button>
                 </div>
               </div>
             );

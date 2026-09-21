@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and Sema
 
 ---
 
+## [v0.9.0] - 2026-09-21
+
+### Added
+- **In-App Spreadsheet Editor (`EditablePreview.jsx`)**: Interactive table editor right after parsing Excel files, allowing teachers to edit student details & scores, add/delete rows, and view live diff highlights before importing.
+- **Direct Student Management in Gradebook (`Gradebook.jsx`)**: "➕ Add Student" modal and row-level 🗑️ delete buttons with confirmation modals and cascade deletion.
+- **Appeals & Make-up Request Deletion**: Permanent delete options for appeals and make-up requests in `AppealsManager.jsx` and `RequestsManager.jsx`.
+- **Super-Admin "View As Teacher" Mode (`AdminDashboard.jsx`)**: Dropdown switch allowing super-admins to inspect any instructor's course data without modifying account roles.
+- **Automated Test Suite (`test-suite.js` / `npm test`)**: End-to-end unit and integration test suite covering deduplication, score handling, diff calculation, and Excel parsing.
+
+### Fixed
+- **Student ID Updates & Deduplication Bug (`adminService.js`)**: Matching existing students by full name prevents duplicate entries when a student's ID number changes on re-upload.
+- **Score Status Differentiation (`excelParser.js` & `StudentDashboard.jsx`)**: Explicit distinction between score of `0` (`✓ Done (0 pts)`) vs empty cell (`⚠ Missing`).
+- **Mobile File Upload & Touch Targets (`ExcelUploader.jsx` & `index.css`)**: Reliable button-based file picker trigger for mobile browsers (including Huawei/HarmonyOS) and minimum 44px touch targets.
+- **Reject Buttons in Review Queues**: Inline validation errors and default remark text (`"Request rejected."`) for both appeals and make-up requests.
+- **Multi-Teacher Isolation (`AuthContext.jsx` & RLS policies)**: Strict scoping of sections, appeals, make-up tasks, and requests by `effectiveAdminId`.
+
+---
+
 ## [v0.8.1] - 2026-09-19
 
 ### Fixed

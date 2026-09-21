@@ -1,5 +1,23 @@
 # System Updates & Release Specifications
 
+## [v0.9.0] - 2026-09-21: Multi-Teacher Isolation, In-App Spreadsheet Editor & Lifecycle Fixes
+
+### 1. Overview
+Major release adding strict multi-teacher data isolation, an in-app interactive spreadsheet editor before importing, name-based student matching to prevent duplicates on ID changes, row-level student management in the gradebook, appeal & request deletion capabilities, mobile file picker fixes, and an automated verification test suite.
+
+---
+
+### 2. Key Enhancements
+- **Name-Based Matching & Deduplication**: Fixes duplicate entries when a student's `student_no` is altered in an Excel re-upload.
+- **In-App Spreadsheet Editor (`EditablePreview.jsx`)**: Interactive live-editing table for parsed spreadsheets before committing to Supabase.
+- **Direct Student Management (`Gradebook.jsx`)**: Add and delete students directly from the gradebook with cascade removal.
+- **Appeals & Make-up Deletions**: Admins can now delete appeals and make-up requests with confirmation prompts.
+- **Super-Admin "View As" Mode**: Toggle between teacher accounts without modifying database roles.
+- **Mobile Touch Targets & File Picker Trigger**: WCAG-compliant 44px touch targets and direct button programmatic triggers.
+- **Automated Test Suite (`npm test`)**: End-to-end verification covering parser, deduplication, scores, and diff calculations.
+
+---
+
 ## [v0.7.1] - 2026-09-15: Excel Upload Fix, Toast Notifications & Error Boundary
 
 ### 1. Overview

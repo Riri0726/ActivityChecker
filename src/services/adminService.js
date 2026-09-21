@@ -236,6 +236,26 @@ export async function deleteSection(sectionId) {
 // STUDENT MANAGEMENT
 // ============================================================
 
+/**
+ * Find a student by full name within a section (case-insensitive).
+ * Used for name-based matching during Excel re-upload to prevent duplication.
+ */
+export async function findStudentByName(sectionId, surname, firstName) {
+  const { data, error } = await supabase
+    .from('students')
+    .select('id, surname, first_name, student_no, access_key')
+    .eq('section_id', sectionId)
+    .ilike('surname', surname.trim())
+    .ilike('first_name', firstName.trim())
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`findStudentByName warning:`, error.message);
+    return null;
+  }
+  return data;
+}
+
 export async function upsertStudent(sectionId, { surname, firstName, studentNo, accessKey }) {
   const { data, error } = await supabase
     .from('students')
@@ -254,6 +274,44 @@ export async function upsertStudent(sectionId, { surname, firstName, studentNo, 
 
   if (error) throw new Error(`Failed to upsert student "${accessKey}": ${error.message}`);
   return data;
+}
+
+/**
+ * Smart upsert: match by name first (handles student_no changes), then fallback to access_key.
+ * Prevents duplicate students when student_no is updated in Excel.
+ */
+export async function smartUpsertStudent(sectionId, { surname, firstName, studentNo, accessKey }) {
+  // 1. Try to find existing student by name
+  const existing = await findStudentByName(sectionId, surname, firstName);
+
+  if (existing) {
+    // Update existing student's student_no and access_key if changed
+    const newAccessKey = accessKey;
+    const needsUpdate =
+      existing.student_no !== (studentNo || null) ||
+      existing.access_key !== newAccessKey;
+
+    if (needsUpdate) {
+      const { data, error } = await supabase
+        .from('students')
+        .update({
+          student_no: studentNo || null,
+          access_key: newAccessKey,
+          surname: surname.trim(),
+          first_name: firstName.trim(),
+        })
+        .eq('id', existing.id)
+        .select('id')
+        .single();
+
+      if (error) throw new Error(`Failed to update student "${surname} ${firstName}": ${error.message}`);
+      return data;
+    }
+    return { id: existing.id };
+  }
+
+  // 2. Fallback: upsert by access_key (new student)
+  return upsertStudent(sectionId, { surname, firstName, studentNo, accessKey });
 }
 
 export async function updateStudent(studentId, { surname, firstName, studentNo }) {
@@ -285,6 +343,39 @@ export async function updateStudent(studentId, { surname, firstName, studentNo }
 
   if (error) throw new Error(`Failed to update student: ${error.message}`);
   return data;
+}
+
+/**
+ * Delete a student and cascade-delete their scores, appeals, and makeup requests.
+ */
+export async function deleteStudent(studentId) {
+  const { error } = await supabase
+    .from('students')
+    .delete()
+    .eq('id', studentId);
+
+  if (error) throw new Error(`Failed to delete student: ${error.message}`);
+}
+
+/**
+ * Delete multiple students by their IDs.
+ */
+export async function deleteStudentsByIds(studentIds) {
+  if (!studentIds || studentIds.length === 0) return;
+  const { error } = await supabase
+    .from('students')
+    .delete()
+    .in('id', studentIds);
+
+  if (error) throw new Error(`Failed to delete students: ${error.message}`);
+}
+
+/**
+ * Add a new student to a section with auto-generated access_key.
+ */
+export async function addStudentToSection(sectionId, { surname, firstName, studentNo }) {
+  const accessKey = (surname.trim() + (studentNo?.trim() || '')).toUpperCase().replace(/\s/g, '');
+  return upsertStudent(sectionId, { surname, firstName, studentNo, accessKey });
 }
 
 // ============================================================
@@ -403,6 +494,19 @@ export async function updateScoreInline(scoreId, newScore) {
 // FULL WORKBOOK IMPORT WITH SUBJECT & ADMIN CONTEXT
 // ============================================================
 
+/**
+ * Get all students for a section (used for removed student detection).
+ */
+export async function getStudentsForSection(sectionId) {
+  const { data, error } = await supabase
+    .from('students')
+    .select('id, surname, first_name, student_no, access_key')
+    .eq('section_id', sectionId);
+
+  if (error) throw new Error(`Failed to load students: ${error.message}`);
+  return data || [];
+}
+
 export async function importParsedWorkbook(parsedSheets, subjectId = null, adminId = null) {
   const importSummary = [];
 
@@ -427,11 +531,16 @@ export async function importParsedWorkbook(parsedSheets, subjectId = null, admin
     const uploadedTitles = activities.map((a) => a.title);
     const archivedActivities = await archiveRemovedActivities(section.id, uploadedTitles);
 
-    // 4. Upsert students + scores
+    // 4. Get existing students for removed-student detection
+    const existingStudents = await getStudentsForSection(section.id);
+    const processedStudentIds = new Set();
+
+    // 5. Upsert students + scores (using smart name-based matching)
     let studentsProcessed = 0;
     for (let i = 0; i < students.length; i++) {
       const studentData = students[i];
-      const saved = await upsertStudent(section.id, studentData);
+      const saved = await smartUpsertStudent(section.id, studentData);
+      processedStudentIds.add(saved.id);
       studentsProcessed++;
 
       const studentScores = scores[i]?.studentScores || [];
@@ -442,11 +551,22 @@ export async function importParsedWorkbook(parsedSheets, subjectId = null, admin
       }
     }
 
+    // 6. Delete students that were removed from the sheet
+    const removedStudents = existingStudents.filter((s) => !processedStudentIds.has(s.id));
+    let removedCount = 0;
+    if (removedStudents.length > 0) {
+      const removedIds = removedStudents.map((s) => s.id);
+      await deleteStudentsByIds(removedIds);
+      removedCount = removedStudents.length;
+    }
+
     importSummary.push({
       sectionName,
       studentsProcessed,
       activitiesProcessed: activities.length,
       archivedCount: archivedActivities?.length || 0,
+      removedStudentsCount: removedCount,
+      removedStudents: removedStudents.map((s) => `${s.surname} ${s.first_name}`),
       duplicates,
     });
   }
@@ -475,9 +595,42 @@ export async function getAppeals(filters = {}) {
     query = query.eq('students.section_id', filters.sectionId);
   }
 
-  const { data, error } = await query;
+  let { data, error } = await query;
   if (error) throw new Error(`Failed to load appeals: ${error.message}`);
+
+  // Filter by admin_id via the nested section relationship (client-side)
+  if (filters.adminId && data) {
+    data = data.filter((a) => a.students?.sections?.admin_id === filters.adminId);
+  }
+
   return data || [];
+}
+
+/**
+ * Delete an appeal record permanently.
+ */
+export async function deleteAppeal(appealId) {
+  // Also clean up the storage proof if it still exists
+  const { data: appealData } = await supabase
+    .from('appeals')
+    .select('storage_path')
+    .eq('id', appealId)
+    .single();
+
+  if (appealData?.storage_path) {
+    try {
+      await supabase.storage.from('appeal-proofs').remove([appealData.storage_path]);
+    } catch (e) {
+      console.warn('[deleteAppeal] Storage cleanup warning:', e);
+    }
+  }
+
+  const { error } = await supabase
+    .from('appeals')
+    .delete()
+    .eq('id', appealId);
+
+  if (error) throw new Error(`Failed to delete appeal: ${error.message}`);
 }
 
 export function getProofImageUrl(storagePath) {
@@ -566,7 +719,7 @@ export const updateAppeal = (appealId, options) =>
 // TWO-STAGE MAKE-UP WORKFLOW & MAKEUP TASKS POOL
 // ============================================================
 
-export async function getMakeupTasks(subjectId = null, sectionId = null) {
+export async function getMakeupTasks(subjectId = null, sectionId = null, adminId = null) {
   let query = supabase
     .from('makeup_tasks')
     .select('*')
@@ -575,6 +728,7 @@ export async function getMakeupTasks(subjectId = null, sectionId = null) {
 
   if (subjectId) query = query.eq('subject_id', subjectId);
   if (sectionId) query = query.eq('section_id', sectionId);
+  if (adminId) query = query.or(`admin_id.eq.${adminId},admin_id.is.null`);
 
   const { data, error } = await query;
   if (error) {
@@ -641,7 +795,7 @@ export async function getMakeupRequests(filters = {}) {
       id, student_email, reason, student_notes, student_submission_link, submission_link,
       status, instructor_remarks, created_at, makeup_task_id,
       students ( id, surname, first_name, student_no, section_id,
-        sections ( id, name, subject_id )
+        sections ( id, name, subject_id, admin_id )
       ),
       activities ( id, title, max_score, accepting_requests, request_deadline ),
       makeup_tasks ( id, title, submission_mode, instructions, submission_url )
@@ -650,9 +804,27 @@ export async function getMakeupRequests(filters = {}) {
 
   if (filters.status) query = query.eq('status', filters.status);
 
-  const { data, error } = await query;
+  let { data, error } = await query;
   if (error) throw new Error(`Failed to load makeup requests: ${error.message}`);
+
+  // Filter by admin_id via the nested section relationship (client-side)
+  if (filters.adminId && data) {
+    data = data.filter((r) => r.students?.sections?.admin_id === filters.adminId);
+  }
+
   return data || [];
+}
+
+/**
+ * Delete a makeup request record permanently.
+ */
+export async function deleteMakeupRequest(requestId) {
+  const { error } = await supabase
+    .from('makeup_requests')
+    .delete()
+    .eq('id', requestId);
+
+  if (error) throw new Error(`Failed to delete makeup request: ${error.message}`);
 }
 
 /**
@@ -771,20 +943,33 @@ export async function getGradebook(sectionId) {
 }
 
 // ============================================================
-// NOTIFICATION COUNTS (admin badge)
+// NOTIFICATION COUNTS (admin badge — scoped to admin's sections)
 // ============================================================
 
-export async function getPendingCounts() {
-  const [{ count: appeals }, { count: requests }] = await Promise.all([
-    supabase
-      .from('appeals')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['pending', 'pending_review']),
-    supabase
-      .from('makeup_requests')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['pending', 'pending_review']),
+export async function getPendingCounts(adminId = null) {
+  // If no adminId, return global counts (backward compatibility)
+  if (!adminId) {
+    const [{ count: appeals }, { count: requests }] = await Promise.all([
+      supabase
+        .from('appeals')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['pending', 'pending_review']),
+      supabase
+        .from('makeup_requests')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['pending', 'pending_review']),
+    ]);
+    return { pendingAppeals: appeals || 0, pendingRequests: requests || 0 };
+  }
+
+  // Scoped counts: fetch pending items then filter by admin's sections
+  const [appealsData, requestsData] = await Promise.all([
+    getAppeals({ adminId }),
+    getMakeupRequests({ adminId }),
   ]);
 
-  return { pendingAppeals: appeals || 0, pendingRequests: requests || 0 };
+  const pendingAppeals = appealsData.filter((a) => ['pending', 'pending_review'].includes(a.status)).length;
+  const pendingRequests = requestsData.filter((r) => ['pending', 'pending_review'].includes(r.status)).length;
+
+  return { pendingAppeals, pendingRequests };
 }

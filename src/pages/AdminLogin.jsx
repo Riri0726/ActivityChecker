@@ -99,6 +99,9 @@ export default function AdminLogin() {
           <a href="/" className="text-muted" style={{ fontSize: '0.82rem' }}>
             ← Student lookup
           </a>
+          <div style={{ marginTop: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            ActivityChecker v0.9.0
+          </div>
         </div>
       </div>
     </div>

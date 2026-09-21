@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { getMakeupTasks, createMakeupTask, updateMakeupTask, deleteMakeupTask } from '../services/adminService.js';
 
 export default function MakeupTaskManager() {
-  const { adminProfile, selectedSubjectId } = useAuth();
+  const { adminProfile, selectedSubjectId, effectiveAdminId } = useAuth();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -23,14 +23,14 @@ export default function MakeupTaskManager() {
     setLoading(true);
     setError('');
     try {
-      const data = await getMakeupTasks(selectedSubjectId || null);
+      const data = await getMakeupTasks(selectedSubjectId || null, null, effectiveAdminId);
       setTasks(data);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [selectedSubjectId]);
+  }, [selectedSubjectId, effectiveAdminId]);
 
   useEffect(() => {
     loadTasks();
@@ -85,7 +85,7 @@ export default function MakeupTaskManager() {
         setSuccess('Make-up task updated.');
       } else {
         await createMakeupTask({
-          adminId: adminProfile?.id,
+          adminId: effectiveAdminId || adminProfile?.id,
           subjectId: selectedSubjectId || null,
           title: form.title,
           submission_mode: form.submission_mode,

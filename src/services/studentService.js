@@ -7,8 +7,10 @@ import imageCompression from 'browser-image-compression';
  * - If studentNo is blank/null: UPPER(surname)
  */
 export function deriveAccessKey(surname, studentNo) {
-  const base = studentNo ? `${surname}${studentNo}` : surname;
-  return base.trim().toUpperCase();
+  const s = (surname || '').trim();
+  const num = (studentNo || '').trim();
+  const base = num ? `${s}${num}` : s;
+  return base.toUpperCase();
 }
 
 /**

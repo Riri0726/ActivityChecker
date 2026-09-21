@@ -12,6 +12,10 @@ export function AuthProvider({ children }) {
   );
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
 
+  // "View as" feature: super_admin can view data as another teacher
+  const [viewAsAdminId, setViewAsAdminId] = useState(null);
+  const [allAdmins, setAllAdmins] = useState([]); // For "View as" dropdown
+
   // Load admin profile and associated subjects
   const loadAdminProfile = useCallback(async (userId, userEmail) => {
     if (!userId) {
@@ -55,7 +59,6 @@ export function AuthProvider({ children }) {
         if (!insertErr && inserted) {
           currentProfile = inserted;
         } else {
-          // Fallback profile object in memory if DB insert is restricted
           currentProfile = {
             id: userId,
             email: userEmail,
@@ -71,16 +74,14 @@ export function AuthProvider({ children }) {
       const theme = currentProfile?.theme || 'blue';
       document.documentElement.setAttribute('data-theme', theme);
 
-      // 2. Fetch subjects for this admin (or all subjects if super_admin)
+      // 2. Fetch subjects — all admins see only their own by default
+      const effectiveId = viewAsAdminId || userId;
       let query = supabase.from('subjects').select('*').order('code', { ascending: true });
-      if (currentProfile?.role !== 'super_admin') {
-        query = query.eq('admin_id', userId);
-      }
+      query = query.eq('admin_id', effectiveId);
 
       const { data: subjectList, error: subjErr } = await query;
       if (!subjErr && subjectList) {
         setSubjects(subjectList);
-        // Automatically select the first subject if none selected or invalid
         if (subjectList.length > 0) {
           const stored = localStorage.getItem('activity_tracker_selected_subject');
           const stillValid = subjectList.some((s) => s.id === stored);
@@ -94,12 +95,23 @@ export function AuthProvider({ children }) {
           setSelectedSubjectId('');
         }
       }
+
+      // 3. If super_admin, load all admins for the "View as" dropdown
+      if (currentProfile?.role === 'super_admin') {
+        const { data: adminList } = await supabase
+          .from('admins')
+          .select('id, email, full_name, role')
+          .order('full_name', { ascending: true });
+        setAllAdmins(adminList || []);
+      } else {
+        setAllAdmins([]);
+      }
     } catch (err) {
       console.error('Error in loadAdminProfile:', err);
     } finally {
       setIsLoadingProfile(false);
     }
-  }, []);
+  }, [viewAsAdminId]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -134,6 +146,13 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const handleViewAs = (adminId) => {
+    setViewAsAdminId(adminId || null);
+    // Reset subject selection when switching teacher view
+    setSelectedSubjectId('');
+    localStorage.removeItem('activity_tracker_selected_subject');
+  };
+
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -145,6 +164,8 @@ export function AuthProvider({ children }) {
     setAdminProfile(null);
     setSubjects([]);
     setSelectedSubjectId('');
+    setViewAsAdminId(null);
+    setAllAdmins([]);
     localStorage.removeItem('activity_tracker_selected_subject');
   };
 
@@ -155,6 +176,9 @@ export function AuthProvider({ children }) {
   };
 
   const isSuperAdmin = adminProfile?.role === 'super_admin';
+
+  // The effective admin ID for data queries: viewAsAdminId if set, otherwise own ID
+  const effectiveAdminId = viewAsAdminId || adminProfile?.id || null;
 
   return (
     <AuthContext.Provider
@@ -169,6 +193,11 @@ export function AuthProvider({ children }) {
         isLoading: session === undefined || isLoadingProfile,
         signIn,
         signOut,
+        // Multi-teacher isolation
+        effectiveAdminId,
+        viewAsAdminId,
+        setViewAsAdminId: handleViewAs,
+        allAdmins,
       }}
     >
       {children}

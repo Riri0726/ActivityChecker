@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { getAppeals, updateAppealWithPurge, getProofSignedUrl } from '../services/adminService.js';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getAppeals, updateAppealWithPurge, getProofSignedUrl, deleteAppeal } from '../services/adminService.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const STATUS_OPTIONS = ['pending', 'reviewed', 'resolved', 'rejected'];
 
 export default function AppealsManager({ onUpdate }) {
+  const { effectiveAdminId } = useAuth();
   const [appeals, setAppeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
@@ -14,12 +16,15 @@ export default function AppealsManager({ onUpdate }) {
   const [saving, setSaving] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [deleteModal, setDeleteModal] = useState(null); // { appealId, studentName, activityTitle }
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const remarksRefs = useRef({});
 
   const loadAppeals = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await getAppeals({ status: filter || undefined });
+      const data = await getAppeals({ status: filter || undefined, adminId: effectiveAdminId });
       setAppeals(data);
 
       const urls = {};
@@ -35,7 +40,7 @@ export default function AppealsManager({ onUpdate }) {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, effectiveAdminId]);
 
   useEffect(() => {
     loadAppeals();
@@ -48,6 +53,18 @@ export default function AppealsManager({ onUpdate }) {
 
     if (newStatus === 'rejected' && !instructorRemark.trim()) {
       setError('Please provide feedback/reason when rejecting an appeal.');
+      // Scroll the remarks input into view and highlight it
+      const remarksEl = remarksRefs.current[appealId];
+      if (remarksEl) {
+        remarksEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        remarksEl.focus();
+        remarksEl.style.borderColor = '#dc2626';
+        remarksEl.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.2)';
+        setTimeout(() => {
+          remarksEl.style.borderColor = '';
+          remarksEl.style.boxShadow = '';
+        }, 3000);
+      }
       return;
     }
 
@@ -74,6 +91,22 @@ export default function AppealsManager({ onUpdate }) {
       setError(e.message);
     } finally {
       setSaving(null);
+    }
+  };
+
+  const handleDeleteAppeal = async () => {
+    if (!deleteModal) return;
+    setDeleteLoading(true);
+    try {
+      await deleteAppeal(deleteModal.appealId);
+      setSuccess(`Appeal from ${deleteModal.studentName} has been permanently deleted.`);
+      setDeleteModal(null);
+      await loadAppeals();
+      onUpdate?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -114,6 +147,39 @@ export default function AppealsManager({ onUpdate }) {
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {deleteModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 1000, padding: '20px',
+        }}>
+          <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '24px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '1.15rem', fontWeight: 600, color: '#dc2626' }}>
+              🗑️ Delete Appeal
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
+              Permanently delete the appeal from <strong>{deleteModal.studentName}</strong> for <strong>{deleteModal.activityTitle}</strong>?
+              <br /><br />
+              This action cannot be undone. Any associated proof images will also be removed.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setDeleteModal(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                style={{ background: '#dc2626', color: '#fff', border: 'none', minHeight: '44px' }}
+                onClick={handleDeleteAppeal}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? 'Deleting...' : '🗑️ Delete Permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px', color: 'var(--color-text-muted)' }}>
           Loading appeals...
@@ -149,7 +215,7 @@ export default function AppealsManager({ onUpdate }) {
                   onClick={() => setExpanded(isExpanded ? null : appeal.id)}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, fontSize: '1.05rem', color: 'var(--color-heading)' }}>
                         {student?.first_name} {student?.surname}
                       </span>
@@ -253,35 +319,55 @@ export default function AppealsManager({ onUpdate }) {
                           placeholder={`Max ${activity?.max_score}`}
                           value={adjustedScores[appeal.id] ?? ''}
                           onChange={(e) => setAdjustedScores({ ...adjustedScores, [appeal.id]: e.target.value })}
+                          style={{ minHeight: '44px' }}
                         />
                       </div>
                       <div>
                         <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
-                          Instructor Feedback / Remarks
+                          Instructor Feedback / Remarks {appeal.status === 'pending' && <span style={{ color: '#dc2626' }}>(required for reject)</span>}
                         </label>
                         <input
+                          ref={(el) => { remarksRefs.current[appeal.id] = el; }}
                           type="text"
                           className="form-input"
                           placeholder="e.g. Verified canvas submission, full points awarded."
                           value={remarks[appeal.id] ?? appeal.instructor_remarks ?? ''}
                           onChange={(e) => setRemarks({ ...remarks, [appeal.id]: e.target.value })}
+                          style={{ minHeight: '44px', transition: 'border-color 0.3s, box-shadow 0.3s' }}
                         />
                       </div>
                     </div>
 
                     {/* Action buttons */}
-                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <button
                         className="btn btn-secondary"
-                        style={{ color: '#dc2626' }}
-                        onClick={() => handleStatusUpdate(appeal, 'rejected')}
+                        style={{ color: '#dc2626', fontSize: '0.82rem', minHeight: '44px' }}
+                        onClick={() => setDeleteModal({
+                          appealId: appeal.id,
+                          studentName: `${student?.first_name} ${student?.surname}`,
+                          activityTitle: activity?.title,
+                        })}
+                      >
+                        🗑️ Delete
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ color: '#dc2626', minHeight: '44px' }}
+                        onClick={() => {
+                          // Pre-populate default remark if empty
+                          if (!remarks[appeal.id]?.trim() && !appeal.instructor_remarks?.trim()) {
+                            setRemarks({ ...remarks, [appeal.id]: 'Appeal rejected.' });
+                          }
+                          handleStatusUpdate(appeal, 'rejected');
+                        }}
                         disabled={saving === appeal.id}
                       >
                         ✕ Reject Appeal
                       </button>
                       <button
                         className="btn btn-primary"
-                        style={{ background: '#16a34a', borderColor: '#16a34a' }}
+                        style={{ background: '#16a34a', borderColor: '#16a34a', minHeight: '44px' }}
                         onClick={() => handleStatusUpdate(appeal, 'resolved')}
                         disabled={saving === appeal.id}
                       >

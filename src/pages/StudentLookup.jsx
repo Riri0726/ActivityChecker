@@ -221,6 +221,9 @@ export default function StudentLookup() {
             )}
           </button>
         </form>
+        <footer style={{ textAlign: 'center', marginTop: 'var(--sp-5)', paddingTop: 'var(--sp-4)', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          ActivityChecker v0.9.0
+        </footer>
       </div>
     </div>
   );

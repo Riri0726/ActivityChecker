@@ -3,7 +3,7 @@ import { supabase } from '../services/supabase.js';
 import { parseWorkbook } from '../services/excelParser.js';
 import { importParsedWorkbook } from '../services/adminService.js';
 import { downloadGradebookTemplate } from '../services/exportTemplate.js';
-import FilePreview from './FilePreview.jsx';
+import EditablePreview from './EditablePreview.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function ExcelUploader({ onUploadSuccess }) {
@@ -52,6 +52,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
             modifiedScores: [],
             unchangedCount: 0,
             archivedActivities: [],
+            removedStudents: [],
           };
           continue;
         }
@@ -59,7 +60,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
         // Fetch existing students in DB
         const { data: dbStudents, error: studentErr } = await supabase
           .from('students')
-          .select('id, access_key')
+          .select('id, surname, first_name, student_no, access_key')
           .eq('section_id', section.id);
 
         if (studentErr) {
@@ -67,7 +68,13 @@ export default function ExcelUploader({ onUploadSuccess }) {
         }
 
         const dbStudentMap = new Map();
-        (dbStudents || []).forEach((s) => dbStudentMap.set(s.access_key, s.id));
+        const dbStudentNameMap = new Map();
+        (dbStudents || []).forEach((s) => {
+          dbStudentMap.set(s.access_key, s.id);
+          // Build name-based map for matching
+          const nameKey = `${(s.surname || '').trim().toUpperCase()}_${(s.first_name || '').trim().toUpperCase()}`;
+          dbStudentNameMap.set(nameKey, s);
+        });
 
         // Fetch existing activities in DB
         const { data: dbActivities, error: actErr } = await supabase
@@ -104,13 +111,28 @@ export default function ExcelUploader({ onUploadSuccess }) {
           });
         }
 
+        // Detect removed students: students in DB but NOT in the new upload
+        const uploadedNameKeys = new Set(
+          students.map((s) => `${(s.surname || '').trim().toUpperCase()}_${(s.firstName || '').trim().toUpperCase()}`)
+        );
+        const uploadedAccessKeys = new Set(students.map((s) => s.accessKey));
+        
+        const removedStudents = (dbStudents || []).filter((s) => {
+          const nameKey = `${(s.surname || '').trim().toUpperCase()}_${(s.first_name || '').trim().toUpperCase()}`;
+          // Student is "removed" if neither their name nor access_key matches any uploaded student
+          return !uploadedNameKeys.has(nameKey) && !uploadedAccessKeys.has(s.access_key);
+        });
+
         const addedStudents = [];
         const modifiedScores = [];
         let unchangedCount = 0;
 
         for (let i = 0; i < students.length; i++) {
           const st = students[i];
-          const dbStudentId = dbStudentMap.get(st.accessKey);
+          const nameKey = `${(st.surname || '').trim().toUpperCase()}_${(st.firstName || '').trim().toUpperCase()}`;
+          const dbStudentByName = dbStudentNameMap.get(nameKey);
+          const dbStudentId = dbStudentByName?.id || dbStudentMap.get(st.accessKey);
+          
           if (!dbStudentId) {
             addedStudents.push(st);
           }
@@ -142,6 +164,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
           modifiedScores,
           unchangedCount,
           archivedActivities: archivedActs,
+          removedStudents,
         };
       }
     } catch (err) {
@@ -149,8 +172,61 @@ export default function ExcelUploader({ onUploadSuccess }) {
     }
   };
 
+  /**
+   * Validate file — supports broader MIME types for mobile browsers
+   */
+  const isValidExcelFile = (f) => {
+    if (!f) return false;
+    const name = (f.name || '').toLowerCase();
+    const validExtensions = ['.xlsx'];
+    const validMimes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'application/octet-stream', // Some mobile browsers send this
+      'application/zip', // .xlsx is technically a zip file
+      '', // Some mobile browsers don't set MIME
+    ];
+
+    const hasValidExt = validExtensions.some((ext) => name.endsWith(ext));
+    const hasValidMime = validMimes.includes(f.type || '');
+
+    // Accept if extension is valid (even if MIME is unexpected)
+    if (hasValidExt) return true;
+    // Accept if MIME matches and no extension available (mobile edge case)
+    if (hasValidMime && !name) return true;
+
+    return false;
+  };
+
+  const getFileTypeWarning = (f) => {
+    const name = (f.name || '').toLowerCase();
+    if (name.endsWith('.xls')) {
+      return 'You uploaded an .xls file (old Excel format). Please save it as .xlsx (Excel Workbook) format and try again.';
+    }
+    if (name.endsWith('.csv')) {
+      return 'CSV files are not supported. Please save your file as .xlsx (Excel Workbook) format.';
+    }
+    return null;
+  };
+
   const processFile = async (f) => {
     if (!f) return;
+
+    // Check for unsupported formats
+    const typeWarning = getFileTypeWarning(f);
+    if (typeWarning) {
+      setError(typeWarning);
+      addToast('error', typeWarning);
+      return;
+    }
+
+    if (!isValidExcelFile(f)) {
+      const msg = 'Unsupported file format. Only .xlsx (Excel Workbook) files are accepted.';
+      setError(msg);
+      addToast('error', msg);
+      return;
+    }
+
     setFile(f);
     setResults(null);
     setError('');
@@ -169,13 +245,13 @@ export default function ExcelUploader({ onUploadSuccess }) {
       } else {
         await computeWorkbookDiff(parsed);
         setParsedSheets(parsed);
-        addToast('success', 'File parsed successfully! Review the changes below.');
+        addToast('success', 'File parsed successfully! Review and edit the data below.');
       }
     } catch (err) {
       console.error('[ExcelUploader] Parse error:', err);
       let errMsg = err.message || 'Unknown error. The file may be corrupted or in an unsupported format.';
       
-      if (f.name.toLowerCase().endsWith('.csv')) {
+      if ((f.name || '').toLowerCase().endsWith('.csv')) {
         errMsg = 'CSV files are not supported. Please save your file as .xlsx (Excel Workbook) format.';
       } else if (err.message && err.message.includes('corrupted')) {
         errMsg = 'The Excel file appears to be corrupted or invalid.';
@@ -193,12 +269,6 @@ export default function ExcelUploader({ onUploadSuccess }) {
   const handleFileChange = (e) => {
     const f = e.target.files?.[0];
     if (f) {
-      const name = f.name.toLowerCase();
-      if (name.endsWith('.csv') || name.endsWith('.xls')) {
-        addToast('error', 'Invalid file type. Please upload a .xlsx file.');
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        return;
-      }
       processFile(f);
     }
   };
@@ -207,16 +277,15 @@ export default function ExcelUploader({ onUploadSuccess }) {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
     if (f) {
-      const name = f.name.toLowerCase();
-      if (name.endsWith('.csv') || name.endsWith('.xls')) {
-        addToast('error', 'Invalid file type. Please upload a .xlsx file.');
-        return;
-      }
-      if (name.endsWith('.xlsx')) {
-        processFile(f);
-      } else {
-        addToast('error', 'Unsupported file format. Only .xlsx files are allowed.');
-      }
+      processFile(f);
+    }
+  };
+
+  const handleBrowseClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
@@ -281,9 +350,8 @@ export default function ExcelUploader({ onUploadSuccess }) {
     }
   };
 
-  try {
-    return (
-      <div className="uploader-wrap">
+  return (
+    <div className="uploader-wrap">
         <style>
           {`
             @keyframes slideInFade {
@@ -330,6 +398,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
               className="btn btn-success"
               onClick={handleDownloadTemplate}
               disabled={downloading}
+              style={{ minHeight: '44px' }}
             >
               {downloading ? 'Generating…' : '⬇ Download Template'}
             </button>
@@ -338,20 +407,24 @@ export default function ExcelUploader({ onUploadSuccess }) {
 
         {/* Drop zone - shown when no preview active */}
         {!parsedSheets && !results && (
-          <label
-            htmlFor="excel-file-input"
+          <div
             className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
             style={{ display: 'block', cursor: 'pointer' }}
+            onClick={handleBrowseClick}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleBrowseClick(e); }}
+            role="button"
+            tabIndex={0}
+            aria-label="Upload Excel file"
           >
             <input
               id="excel-file-input"
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream"
               onChange={handleFileChange}
-              onClick={(e) => { e.target.value = null; }}
+              onClick={(e) => { e.stopPropagation(); e.target.value = null; }}
               style={{
                 position: 'absolute',
                 width: '1px',
@@ -385,7 +458,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
-                    style={{ pointerEvents: 'none' }}
+                    style={{ pointerEvents: 'none', minHeight: '44px' }}
                     tabIndex={-1}
                   >
                     📁 Select Excel File
@@ -393,7 +466,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
                 </div>
               </div>
             )}
-          </label>
+          </div>
         )}
 
         {parsing && (
@@ -410,13 +483,14 @@ export default function ExcelUploader({ onUploadSuccess }) {
           </div>
         )}
 
-        {/* Visual Diff Preview Modal / Component */}
+        {/* Editable Preview — replaces the old read-only FilePreview */}
         {parsedSheets && !results && (
-          <FilePreview
+          <EditablePreview
             parsedSheets={parsedSheets}
             onConfirm={handleConfirmImport}
             onCancel={handleCancelPreview}
             importing={loading}
+            onSheetsChange={setParsedSheets}
           />
         )}
 
@@ -450,7 +524,17 @@ export default function ExcelUploader({ onUploadSuccess }) {
                     {r.archivedCount > 0 && (
                       <span className="text-muted">({r.archivedCount} archived)</span>
                     )}
+                    {r.removedStudentsCount > 0 && (
+                      <span style={{ color: '#dc2626', fontWeight: 600 }}>
+                        🗑️ {r.removedStudentsCount} student{r.removedStudentsCount !== 1 ? 's' : ''} removed
+                      </span>
+                    )}
                   </div>
+                  {r.removedStudents?.length > 0 && (
+                    <div style={{ fontSize: '0.78rem', color: '#991b1b', marginTop: '4px' }}>
+                      Removed: {r.removedStudents.join(', ')}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -502,13 +586,4 @@ export default function ExcelUploader({ onUploadSuccess }) {
         </div>
       </div>
     );
-  } catch (err) {
-    return (
-      <div className="alert alert-error">
-        <h3>Component Error</h3>
-        <p>Something went wrong rendering the Excel Uploader. Please refresh the page.</p>
-        <pre>{err.message}</pre>
-      </div>
-    );
-  }
 }

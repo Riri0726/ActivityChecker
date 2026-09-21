@@ -14,7 +14,10 @@ function extractCellValue(cellVal) {
 }
 
 async function readFileBuffer(file) {
-  if (typeof file.arrayBuffer === 'function') {
+  if (file instanceof ArrayBuffer) return file;
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(file)) return file.buffer;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(file)) return file;
+  if (typeof file?.arrayBuffer === 'function') {
     try {
       const buf = await file.arrayBuffer();
       if (buf && buf.byteLength > 0) return buf;
@@ -22,12 +25,15 @@ async function readFileBuffer(file) {
       console.warn('file.arrayBuffer() failed, falling back to FileReader:', e);
     }
   }
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = (e) => reject(new Error('FileReader failed to read the file: ' + (e?.target?.error?.message || 'unknown error')));
-    reader.readAsArrayBuffer(file);
-  });
+  if (typeof FileReader !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (e) => reject(new Error('FileReader failed to read the file: ' + (e?.target?.error?.message || 'unknown error')));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+  throw new Error('Unable to read file buffer: unsupported environment or file format.');
 }
 
 /**

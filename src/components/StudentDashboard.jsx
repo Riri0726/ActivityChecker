@@ -393,6 +393,10 @@ export default function StudentDashboard({
           }}
         />
       )}
+
+      <footer style={{ textAlign: 'center', margin: '36px 0 18px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+        ActivityChecker v0.9.0
+      </footer>
     </div>
   );
 }

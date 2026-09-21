@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSections, getGradebook, updateScoreInline, updateActivitySettings, getSectionDeleteSummary, deleteSection, updateStudent } from '../services/adminService.js';
+import { getSections, getGradebook, updateScoreInline, updateActivitySettings, getSectionDeleteSummary, deleteSection, updateStudent, deleteStudent, addStudentToSection } from '../services/adminService.js';
 import { exportSectionToExcel, exportSectionToPdf } from '../services/exportService.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Gradebook() {
-  const { selectedSubjectId, subjects, adminProfile } = useAuth();
+  const { selectedSubjectId, subjects, adminProfile, effectiveAdminId } = useAuth();
   const [sections, setSections] = useState([]);
   const [selectedSection, setSelectedSection] = useState('');
   const [data, setData] = useState(null);
@@ -23,6 +23,15 @@ export default function Gradebook() {
   const [editingStudent, setEditingStudent] = useState(null); // { studentId, field, value }
   const [savingStudent, setSavingStudent] = useState(null);
 
+  // Add student modal state
+  const [addStudentModal, setAddStudentModal] = useState(false);
+  const [newStudentData, setNewStudentData] = useState({ surname: '', firstName: '', studentNo: '' });
+  const [addingStudent, setAddingStudent] = useState(false);
+
+  // Delete student modal state
+  const [deleteStudentModal, setDeleteStudentModal] = useState(null); // { studentId, name }
+  const [deletingStudent, setDeletingStudent] = useState(false);
+
   const loadGradebook = useCallback(async (sectionId) => {
     if (!sectionId) return;
     setLoading(true);
@@ -40,7 +49,7 @@ export default function Gradebook() {
   // Load sections
   const loadSectionsList = useCallback(async () => {
     try {
-      const secList = await getSections(selectedSubjectId || null);
+      const secList = await getSections(selectedSubjectId || null, effectiveAdminId);
       setSections(secList);
       if (secList.length > 0) {
         if (!secList.some((s) => s.id === selectedSection)) {
@@ -54,7 +63,7 @@ export default function Gradebook() {
     } catch (e) {
       setError(e.message);
     }
-  }, [selectedSubjectId, selectedSection, loadGradebook]);
+  }, [selectedSubjectId, selectedSection, loadGradebook, effectiveAdminId]);
 
   useEffect(() => {
     loadSectionsList();
@@ -196,6 +205,46 @@ export default function Gradebook() {
     setEditingStudent(null);
   };
 
+  // ---- Add Student Handler ----
+  const handleAddStudentSubmit = async () => {
+    if (!newStudentData.surname.trim() || !newStudentData.firstName.trim()) {
+      setError('Surname and First Name are required.');
+      return;
+    }
+    setAddingStudent(true);
+    try {
+      await addStudentToSection(selectedSection, {
+        surname: newStudentData.surname,
+        firstName: newStudentData.firstName,
+        studentNo: newStudentData.studentNo,
+      });
+      setSuccess(`Student "${newStudentData.surname}, ${newStudentData.firstName}" added successfully.`);
+      setAddStudentModal(false);
+      setNewStudentData({ surname: '', firstName: '', studentNo: '' });
+      await loadGradebook(selectedSection);
+    } catch (e) {
+      setError('Failed to add student: ' + e.message);
+    } finally {
+      setAddingStudent(false);
+    }
+  };
+
+  // ---- Delete Student Handler ----
+  const handleDeleteStudentConfirm = async () => {
+    if (!deleteStudentModal) return;
+    setDeletingStudent(true);
+    try {
+      await deleteStudent(deleteStudentModal.studentId);
+      setSuccess(`Student "${deleteStudentModal.name}" has been permanently removed.`);
+      setDeleteStudentModal(null);
+      await loadGradebook(selectedSection);
+    } catch (e) {
+      setError('Failed to delete student: ' + e.message);
+    } finally {
+      setDeletingStudent(false);
+    }
+  };
+
   const handleExportExcel = async () => {
     if (!data || !activeSectionObj) return;
     setExporting(true);
@@ -290,10 +339,17 @@ export default function Gradebook() {
         {data && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
+              className="btn btn-primary btn-sm"
+              onClick={() => setAddStudentModal(true)}
+              style={{ fontSize: '0.82rem', minHeight: '44px' }}
+            >
+              ➕ Add Student
+            </button>
+            <button
               className="btn btn-danger btn-sm"
               onClick={handleDeleteWorkbookClick}
               disabled={deleteLoading}
-              style={{ fontSize: '0.82rem' }}
+              style={{ fontSize: '0.82rem', minHeight: '44px' }}
             >
               🗑️ Delete Workbook
             </button>
@@ -358,6 +414,7 @@ export default function Gradebook() {
                     </button>
                   </th>
                 ))}
+                <th style={{ padding: '10px 12px', width: '50px' }}>Del</th>
               </tr>
             </thead>
             <tbody>
@@ -482,6 +539,20 @@ export default function Gradebook() {
                       </td>
                     );
                   })}
+                  <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: '#dc2626', fontSize: '0.9rem', minWidth: '36px', minHeight: '36px', padding: '4px' }}
+                      onClick={() => setDeleteStudentModal({
+                        studentId: student.id,
+                        name: `${student.surname}, ${student.first_name}`,
+                      })}
+                      title="Delete this student"
+                    >
+                      🗑️
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -525,6 +596,7 @@ export default function Gradebook() {
                 onChange={(e) => setDeleteConfirmName(e.target.value)}
                 placeholder={deleteModal.sectionName}
                 autoFocus
+                style={{ minHeight: '44px' }}
               />
             </div>
 
@@ -533,6 +605,7 @@ export default function Gradebook() {
                 className="btn btn-secondary"
                 onClick={() => { setDeleteModal(null); setDeleteConfirmName(''); }}
                 disabled={deleteLoading}
+                style={{ minHeight: '44px' }}
               >
                 Cancel
               </button>
@@ -540,8 +613,106 @@ export default function Gradebook() {
                 className="btn btn-danger"
                 onClick={handleDeleteWorkbookConfirm}
                 disabled={deleteConfirmName !== deleteModal.sectionName || deleteLoading}
+                style={{ minHeight: '44px' }}
               >
                 {deleteLoading ? 'Deleting…' : '🗑️ Delete Permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Student Modal */}
+      {addStudentModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 1000, padding: '20px',
+        }}>
+          <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '24px' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1.15rem', fontWeight: 600 }}>
+              ➕ Add Student to {activeSectionObj?.name}
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem', fontWeight: 600 }}>Surname *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newStudentData.surname}
+                  onChange={(e) => setNewStudentData({ ...newStudentData, surname: e.target.value })}
+                  placeholder="e.g. DELA CRUZ"
+                  autoFocus
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem', fontWeight: 600 }}>First Name *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newStudentData.firstName}
+                  onChange={(e) => setNewStudentData({ ...newStudentData, firstName: e.target.value })}
+                  placeholder="e.g. Juan"
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem', fontWeight: 600 }}>Student No. (optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newStudentData.studentNo}
+                  onChange={(e) => setNewStudentData({ ...newStudentData, studentNo: e.target.value })}
+                  placeholder="e.g. 2024-00001"
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" style={{ minHeight: '44px' }} onClick={() => { setAddStudentModal(false); setNewStudentData({ surname: '', firstName: '', studentNo: '' }); }}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ minHeight: '44px' }}
+                onClick={handleAddStudentSubmit}
+                disabled={addingStudent || !newStudentData.surname.trim() || !newStudentData.firstName.trim()}
+              >
+                {addingStudent ? 'Adding…' : '➕ Add Student'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Student Confirmation Modal */}
+      {deleteStudentModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 1000, padding: '20px',
+        }}>
+          <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '24px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '1.15rem', fontWeight: 600, color: '#dc2626' }}>
+              🗑️ Delete Student
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
+              Permanently delete <strong>{deleteStudentModal.name}</strong> from this section?
+              <br /><br />
+              This will also delete all their scores, appeals, and makeup requests. This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" style={{ minHeight: '44px' }} onClick={() => setDeleteStudentModal(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                style={{ background: '#dc2626', color: '#fff', border: 'none', minHeight: '44px' }}
+                onClick={handleDeleteStudentConfirm}
+                disabled={deletingStudent}
+              >
+                {deletingStudent ? 'Deleting…' : '🗑️ Delete Permanently'}
               </button>
             </div>
           </div>

@@ -13,7 +13,11 @@ import DarkModeToggle from '../components/DarkModeToggle.jsx';
 import './AdminDashboard.css';
 
 export default function AdminDashboard() {
-  const { session, signOut, adminProfile, isSuperAdmin, subjects, selectedSubjectId, setSelectedSubjectId, refreshAdmin } = useAuth();
+  const {
+    session, signOut, adminProfile, isSuperAdmin, subjects,
+    selectedSubjectId, setSelectedSubjectId, refreshAdmin,
+    effectiveAdminId, viewAsAdminId, setViewAsAdminId, allAdmins,
+  } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('upload');
   const [badges, setBadges] = useState({ pendingAppeals: 0, pendingRequests: 0 });
@@ -31,7 +35,7 @@ export default function AdminDashboard() {
 
   const loadBadges = async () => {
     try {
-      const counts = await getPendingCounts();
+      const counts = await getPendingCounts(effectiveAdminId);
       setBadges(counts);
     } catch {
       // Non-critical badge count
@@ -39,8 +43,10 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    loadBadges();
-  }, []);
+    if (effectiveAdminId) {
+      loadBadges();
+    }
+  }, [effectiveAdminId]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -56,6 +62,9 @@ export default function AdminDashboard() {
   };
 
   const activeSubject = subjects.find((s) => s.id === selectedSubjectId);
+
+  // Determine the "View as" label for the banner
+  const viewAsAdmin = viewAsAdminId ? allAdmins.find((a) => a.id === viewAsAdminId) : null;
 
   return (
     <div className="admin-layout">
@@ -74,6 +83,39 @@ export default function AdminDashboard() {
           <span aria-hidden="true">🛡️</span>
           <span>Faculty Portal</span>
         </div>
+
+        {/* View As Teacher (Super Admin Only) */}
+        {isSuperAdmin && allAdmins.length > 1 && (
+          <div style={{ padding: '0 var(--sp-3)', marginBottom: 'var(--sp-3)' }}>
+            <label style={{ fontSize: '0.72rem', color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+              👁️ View As Teacher
+            </label>
+            <select
+              className="form-input"
+              style={{
+                fontSize: '0.8rem',
+                padding: '6px 8px',
+                background: viewAsAdminId ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.08)',
+                color: '#fff',
+                borderColor: viewAsAdminId ? 'rgba(251,191,36,0.4)' : 'rgba(255,255,255,0.15)',
+                width: '100%',
+              }}
+              value={viewAsAdminId || ''}
+              onChange={(e) => setViewAsAdminId(e.target.value || null)}
+            >
+              <option value="" style={{ color: '#000' }}>
+                My Own Data
+              </option>
+              {allAdmins
+                .filter((a) => a.id !== adminProfile?.id)
+                .map((a) => (
+                  <option key={a.id} value={a.id} style={{ color: '#000' }}>
+                    {a.full_name} ({a.email}) {a.role === 'super_admin' ? '⭐' : ''}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
 
         {/* Active Subject Switcher */}
         {subjects.length > 0 && (
@@ -192,13 +234,16 @@ export default function AdminDashboard() {
           >
             Sign Out
           </button>
+          <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '0.72rem', color: '#64748b', letterSpacing: '0.05em' }}>
+            ActivityChecker v0.9.0
+          </div>
         </div>
       </aside>
 
       {/* Main Content Area */}
       <main className="admin-main">
         {/* Top bar on mobile/desktop */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)', flexWrap: 'wrap', gap: '8px' }}>
           <button
             className="btn btn-ghost mobile-menu-btn"
             onClick={() => setSidebarOpen(true)}
@@ -206,11 +251,26 @@ export default function AdminDashboard() {
           >
             ☰ Menu
           </button>
-          {activeSubject && (
-            <div style={{ fontSize: '0.85rem', color: 'var(--color-primary)', fontWeight: 600 }}>
-              Viewing: {activeSubject.code} — {activeSubject.name}
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {viewAsAdmin && (
+              <div style={{
+                fontSize: '0.82rem',
+                background: '#fef3c7',
+                color: '#b45309',
+                padding: '4px 12px',
+                borderRadius: '6px',
+                fontWeight: 600,
+                border: '1px solid #fbbf24',
+              }}>
+                👁️ Viewing as: {viewAsAdmin.full_name}
+              </div>
+            )}
+            {activeSubject && (
+              <div style={{ fontSize: '0.85rem', color: 'var(--color-primary)', fontWeight: 600 }}>
+                Viewing: {activeSubject.code} — {activeSubject.name}
+              </div>
+            )}
+          </div>
         </div>
 
         {activeTab === 'upload' && <ExcelUploader onUploadSuccess={loadBadges} />}

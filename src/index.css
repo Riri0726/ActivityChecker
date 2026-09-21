@@ -1298,3 +1298,45 @@ tbody td {
   }
 }
 
+/* ============================================================
+   MOBILE & ACCESSIBILITY POLISH
+   ============================================================ */
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  /* Ensure 44px touch targets on mobile/touch screens */
+  button,
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .btn-ghost,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  select {
+    min-height: 44px;
+  }
+
+  .nav-item,
+  .subject-pill,
+  .tab-btn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Modal scrolling polish for mobile viewports */
+  .modal-card,
+  [class*="modal"] > div {
+    max-height: 90vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+
