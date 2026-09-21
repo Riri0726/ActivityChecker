@@ -114,27 +114,58 @@ export async function parseWorkbook(file) {
       // Filter out completely empty rows for parsing
       const nonEmptyRows = rows.filter((r) => r.some((c) => c !== null && c !== undefined && c !== ''));
 
-      if (nonEmptyRows.length < 2) {
-        errors.push(`Sheet "${sectionName}" has no student data rows — only a header was found.`);
-        results.push({ sectionName, students: [], activities: [], scores: [], duplicates: [], validation: { errors, warnings, info, hasMissingMaxScore: false, previewRows: [] } });
-        return;
+      // ── Intelligent Header Row Detection ────────────────────────
+      let headerRowIndex = -1;
+      let surnameIdx = -1;
+      let firstNameIdx = -1;
+      let studentNoIdx = -1;
+
+      for (let r = 0; r < Math.min(nonEmptyRows.length, 15); r++) {
+        const candidateRow = nonEmptyRows[r].map((h) => {
+          const v = extractCellValue(h);
+          return v ? String(v).trim() : '';
+        });
+
+        const sIdx = candidateRow.findIndex((h) => /^(surname|last.?name|family.?name)$/i.test(h));
+        const fIdx = candidateRow.findIndex((h) => /^(first.?name|given.?name|first)$/i.test(h));
+
+        if (sIdx !== -1 && fIdx !== -1) {
+          headerRowIndex = r;
+          surnameIdx = sIdx;
+          firstNameIdx = fIdx;
+          studentNoIdx = candidateRow.findIndex((h) => /^(student.?(no|number|num|id)\.?|id.?(no|number|num)\.?|lrn)$/i.test(h));
+          break;
+        }
       }
 
-      const headerRow = nonEmptyRows[0].map((h) => {
+      // Fallback to row 0 if no explicit match was found
+      if (headerRowIndex === -1) {
+        headerRowIndex = 0;
+        const candidateRow = nonEmptyRows[0].map((h) => {
+          const v = extractCellValue(h);
+          return v ? String(v).trim() : '';
+        });
+        surnameIdx = candidateRow.findIndex((h) => /^(surname|last.?name|family.?name)$/i.test(h));
+        firstNameIdx = candidateRow.findIndex((h) => /^(first.?name|given.?name|first)$/i.test(h));
+        studentNoIdx = candidateRow.findIndex((h) => /^(student.?(no|number|num|id)\.?|id.?(no|number|num)\.?|lrn)$/i.test(h));
+      }
+
+      const headerRow = nonEmptyRows[headerRowIndex].map((h) => {
         const v = extractCellValue(h);
         return v ? String(v).trim() : '';
       });
 
-      // ── Identity column detection ─────────────────────────────
-      const surnameIdx   = headerRow.findIndex((h) => /^surname$/i.test(h));
-      const firstNameIdx = headerRow.findIndex((h) => /^first.?name$/i.test(h));
-      const studentNoIdx = headerRow.findIndex((h) => /^student.?no\.?$/i.test(h));
-
-      if (surnameIdx === -1) errors.push('Missing required column: "Surname"');
-      if (firstNameIdx === -1) errors.push('Missing required column: "First Name"');
-      if (studentNoIdx === -1) warnings.push('"Student No." column not found — students without a student number will use surname-only login.');
+      if (surnameIdx === -1) errors.push('Missing required column: "Surname" (or "Last Name")');
+      if (firstNameIdx === -1) errors.push('Missing required column: "First Name" (or "Given Name")');
+      if (studentNoIdx === -1) warnings.push('"Student No." column not found — students will use surname-only login.');
 
       if (surnameIdx === -1 || firstNameIdx === -1) {
+        results.push({ sectionName, students: [], activities: [], scores: [], duplicates: [], validation: { errors, warnings, info, hasMissingMaxScore: false, previewRows: [] } });
+        return;
+      }
+
+      if (headerRowIndex + 1 >= nonEmptyRows.length) {
+        errors.push(`Sheet "${sectionName}" has headers on row ${headerRowIndex + 1} but no student data rows below it.`);
         results.push({ sectionName, students: [], activities: [], scores: [], duplicates: [], validation: { errors, warnings, info, hasMissingMaxScore: false, previewRows: [] } });
         return;
       }
@@ -143,7 +174,7 @@ export async function parseWorkbook(file) {
       const activityColCount = headerRow.slice(lastIdentityIdx + 1).filter(Boolean).length;
 
       if (activityColCount === 0) {
-        errors.push('No activity columns found after the identity columns. Add columns like "Quiz 1 [50]".');
+        errors.push('No activity columns found after identity columns. Add columns like "Quiz 1 [50]".');
       }
 
       // ── Activity column validation ────────────────────────────
@@ -174,7 +205,7 @@ export async function parseWorkbook(file) {
       let invalidScoreCount = 0;
       let missingScoreCount = 0;
 
-      for (let r = 1; r < nonEmptyRows.length; r++) {
+      for (let r = headerRowIndex + 1; r < nonEmptyRows.length; r++) {
         const row = nonEmptyRows[r];
         
         const rawSurname = extractCellValue(row[surnameIdx]);

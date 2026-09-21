@@ -8,6 +8,8 @@ export default function UploadDiagnosticsModal({
   lastError,
   logs = [],
   onFileSelect,
+  parsing = false,
+  parsedSheets = null,
 }) {
   const [copied, setCopied] = useState(false);
   const [testingExcelJS, setTestingExcelJS] = useState(false);
@@ -124,9 +126,11 @@ export default function UploadDiagnosticsModal({
     const f = e.target.files?.[0];
     if (f) {
       onFileSelect?.(f);
-      onClose?.();
+      // Keep modal open so the user sees live feedback and parsing result!
     }
   };
+
+  const totalStudentsParsed = (parsedSheets || []).reduce((sum, s) => sum + (s.students?.length || 0), 0);
 
   return (
     <div
@@ -182,7 +186,7 @@ export default function UploadDiagnosticsModal({
                 Upload Diagnostics & Mobile Helper
               </h3>
               <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--color-text-muted, #64748b)' }}>
-                Troubleshoot mobile/tablet file upload issues and inspect error logs
+                Inspect file parsing step-by-step & fix mobile/tablet upload issues
               </p>
             </div>
           </div>
@@ -200,21 +204,73 @@ export default function UploadDiagnosticsModal({
         {/* Content Body */}
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
+          {/* Live Parsing Spinner */}
+          {parsing && (
+            <div
+              style={{
+                padding: '16px',
+                borderRadius: '12px',
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                color: '#1d4ed8',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+              }}
+            >
+              <span className="spinner" style={{ width: 22, height: 22, borderWidth: 3 }} />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Reading & Parsing Excel File...</div>
+                <div style={{ fontSize: '0.82rem', color: '#3b82f6' }}>
+                  Testing worksheet structure, column headers, and student score rows.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Success Banner if parsedSheets is ready */}
+          {!parsing && parsedSheets && parsedSheets.length > 0 && totalStudentsParsed > 0 && (
+            <div
+              style={{
+                padding: '16px',
+                borderRadius: '12px',
+                background: '#f0fdf4',
+                border: '1.5px solid #86efac',
+                color: '#15803d',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '1.05rem', marginBottom: '4px' }}>
+                <span>🎉</span> File Parsed Successfully!
+              </div>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.86rem', color: '#166534' }}>
+                Found <strong>{parsedSheets.length} Section(s)</strong> with a total of <strong>{totalStudentsParsed} Students</strong>.
+              </p>
+              <button
+                type="button"
+                className="btn btn-success"
+                onClick={onClose}
+                style={{ width: '100%', padding: '10px 16px', fontWeight: 700, fontSize: '0.95rem' }}
+              >
+                👉 Continue to Spreadsheet Preview & Editor
+              </button>
+            </div>
+          )}
+
           {/* Error Banner if error exists */}
-          {lastError && (
+          {!parsing && lastError && (
             <div
               style={{
                 padding: '14px 16px',
                 borderRadius: '10px',
                 background: '#fef2f2',
-                border: '1px solid #fecaca',
+                border: '1.5px solid #fca5a5',
                 color: '#991b1b',
               }}
             >
               <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                <span>⚠️</span> Upload / Parse Error Detected
+                <span>⚠️</span> Issue Detected During Upload / Parse
               </div>
-              <div style={{ fontSize: '0.88rem', wordBreak: 'break-word', fontFamily: 'monospace', background: '#fff', padding: '8px 10px', borderRadius: '6px', border: '1px solid #fca5a5' }}>
+              <div style={{ fontSize: '0.88rem', wordBreak: 'break-word', fontFamily: 'monospace', background: '#fff', padding: '10px 12px', borderRadius: '6px', border: '1px solid #fca5a5', lineHeight: 1.4 }}>
                 {typeof lastError === 'string' ? lastError : lastError.message || String(lastError)}
               </div>
             </div>
@@ -234,7 +290,7 @@ export default function UploadDiagnosticsModal({
               📱 Direct Mobile / Tablet File Picker
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted, #64748b)', margin: '0 0 12px 0' }}>
-              If tapping the main dropzone did not open your file manager (e.g. in Brave / Chrome on Android), use this direct selector without MIME filters:
+              Tap below to choose your <code>.xlsx</code> file directly from your device storage:
             </p>
             <label
               className="btn btn-primary"
@@ -249,12 +305,13 @@ export default function UploadDiagnosticsModal({
                 borderRadius: '8px',
               }}
             >
-              <span>📂</span> Choose File from Device (*.xlsx)
+              <span>📂</span> {parsing ? 'Reading File...' : 'Choose File from Device (*.xlsx)'}
               <input
                 type="file"
                 accept="*/*"
                 onChange={handleDirectNativeFileChange}
                 style={{ display: 'none' }}
+                disabled={parsing}
               />
             </label>
           </div>

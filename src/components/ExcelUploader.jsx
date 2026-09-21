@@ -281,13 +281,28 @@ export default function ExcelUploader({ onUploadSuccess }) {
         addToast('error', msg);
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
-      } else {
-        logEvent('Computing workbook live diff against Supabase records...');
-        await computeWorkbookDiff(parsed);
-        logEvent('Diff computed successfully! Displaying Editable Preview.');
-        setParsedSheets(parsed);
-        addToast('success', 'File parsed successfully! Review and edit the data below.');
+        return;
       }
+
+      const totalStudents = parsed.reduce((sum, s) => sum + (s.students?.length || 0), 0);
+      const allValidationErrors = parsed.flatMap((s) => (s.validation?.errors || []).map((e) => `[Sheet "${s.sectionName}"]: ${e}`));
+
+      if (totalStudents === 0 && allValidationErrors.length > 0) {
+        const msg = allValidationErrors.join(' | ');
+        logEvent(`Validation Failed: ${msg}`);
+        setError(`Cannot import: ${msg}`);
+        setLastRawError(new Error(`Validation Failed:\n${allValidationErrors.join('\n')}`));
+        addToast('error', `Validation Failed: ${allValidationErrors[0]}`);
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      logEvent('Computing workbook live diff against Supabase records...');
+      await computeWorkbookDiff(parsed);
+      logEvent('Diff computed successfully! Displaying Editable Preview.');
+      setParsedSheets(parsed);
+      addToast('success', `File parsed successfully! Found ${parsed.length} sheet(s) with ${totalStudents} student(s).`);
     } catch (err) {
       console.error('[ExcelUploader] Parse error:', err);
       logEvent(`Parse error: ${err.message || String(err)}`);
@@ -589,6 +604,8 @@ export default function ExcelUploader({ onUploadSuccess }) {
           lastError={lastRawError || error}
           logs={uploadLogs}
           onFileSelect={(f) => processFile(f)}
+          parsing={parsing}
+          parsedSheets={parsedSheets}
         />
 
         {/* Editable Preview — replaces the old read-only FilePreview */}
