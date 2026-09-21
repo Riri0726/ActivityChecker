@@ -13,10 +13,13 @@ function extractCellValue(cellVal) {
   return String(cellVal);
 }
 
-async function readFileBuffer(file) {
+export async function readFileBuffer(file) {
+  if (!file) throw new Error('No file provided to parser.');
   if (file instanceof ArrayBuffer) return file;
   if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(file)) return file.buffer;
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer(file)) return file;
+  
+  // Try modern Blob.arrayBuffer()
   if (typeof file?.arrayBuffer === 'function') {
     try {
       const buf = await file.arrayBuffer();
@@ -25,15 +28,28 @@ async function readFileBuffer(file) {
       console.warn('file.arrayBuffer() failed, falling back to FileReader:', e);
     }
   }
-  if (typeof FileReader !== 'undefined') {
+
+  // Fallback to FileReader
+  if (typeof FileReader !== 'undefined' && (file instanceof Blob || file instanceof File)) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = (e) => reject(new Error('FileReader failed to read the file: ' + (e?.target?.error?.message || 'unknown error')));
+      reader.onload = () => {
+        if (reader.result) {
+          resolve(reader.result);
+        } else {
+          reject(new Error('FileReader returned an empty buffer. Ensure the file is not 0 bytes or locked by another app.'));
+        }
+      };
+      reader.onerror = (e) => {
+        const msg = e?.target?.error?.message || reader.error?.message || 'Storage permission denied or file unavailable';
+        reject(new Error(`FileReader failed to read the file: ${msg}`));
+      };
+      reader.onabort = () => reject(new Error('FileReader aborted reading the file.'));
       reader.readAsArrayBuffer(file);
     });
   }
-  throw new Error('Unable to read file buffer: unsupported environment or file format.');
+  
+  throw new Error(`Unable to read file buffer. File type: ${typeof file}, constructor: ${file?.constructor?.name || 'unknown'}`);
 }
 
 /**

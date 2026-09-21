@@ -4,6 +4,7 @@ import { parseWorkbook } from '../services/excelParser.js';
 import { importParsedWorkbook } from '../services/adminService.js';
 import { downloadGradebookTemplate } from '../services/exportTemplate.js';
 import EditablePreview from './EditablePreview.jsx';
+import UploadDiagnosticsModal from './UploadDiagnosticsModal.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function ExcelUploader({ onUploadSuccess }) {
@@ -15,7 +16,15 @@ export default function ExcelUploader({ onUploadSuccess }) {
   const [progress, setProgress] = useState('');
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
+  const [lastRawError, setLastRawError] = useState(null);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
+  const [uploadLogs, setUploadLogs] = useState([]);
   const fileInputRef = useRef(null);
+
+  const logEvent = (msg) => {
+    const time = new Date().toLocaleTimeString();
+    setUploadLogs((prev) => [...prev.slice(-40), `[${time}] ${msg}`]);
+  };
 
   // Toast System
   const [toasts, setToasts] = useState([]);
@@ -230,17 +239,23 @@ export default function ExcelUploader({ onUploadSuccess }) {
   const processFile = async (f) => {
     if (!f) return;
 
+    logEvent(`File chosen: "${f.name}", size=${f.size} bytes (${(f.size / 1024).toFixed(1)} KB), type="${f.type || 'none'}"`);
+
     // Check for unsupported formats
     const typeWarning = getFileTypeWarning(f);
     if (typeWarning) {
+      logEvent(`File type warning: ${typeWarning}`);
       setError(typeWarning);
+      setLastRawError(new Error(typeWarning));
       addToast('error', typeWarning);
       return;
     }
 
     if (!isValidExcelFile(f)) {
       const msg = 'Unsupported file format. Only .xlsx (Excel Workbook) files are accepted.';
+      logEvent(`Validation failed: ${msg}`);
       setError(msg);
+      setLastRawError(new Error(msg));
       addToast('error', msg);
       return;
     }
@@ -248,27 +263,37 @@ export default function ExcelUploader({ onUploadSuccess }) {
     setFile(f);
     setResults(null);
     setError('');
+    setLastRawError(null);
     setParsing(true);
     setParsedSheets(null);
     addToast('info', 'Reading Excel file...');
+    logEvent('Starting parseWorkbook with ExcelJS...');
 
     try {
       const parsed = await parseWorkbook(f);
+      logEvent(`parseWorkbook completed successfully! Extracted ${parsed?.length || 0} sheet(s).`);
+
       if (!parsed || parsed.length === 0) {
         const msg = 'No valid sheets found in the uploaded file. Ensure sheets have student columns.';
+        logEvent(`Empty workbook: ${msg}`);
         setError(msg);
+        setLastRawError(new Error(msg));
         addToast('error', msg);
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
       } else {
+        logEvent('Computing workbook live diff against Supabase records...');
         await computeWorkbookDiff(parsed);
+        logEvent('Diff computed successfully! Displaying Editable Preview.');
         setParsedSheets(parsed);
         addToast('success', 'File parsed successfully! Review and edit the data below.');
       }
     } catch (err) {
       console.error('[ExcelUploader] Parse error:', err);
-      let errMsg = err.message || 'Unknown error. The file may be corrupted or in an unsupported format.';
+      logEvent(`Parse error: ${err.message || String(err)}`);
+      setLastRawError(err);
       
+      let errMsg = err.message || 'Unknown error. The file may be corrupted or in an unsupported format.';
       if ((f.name || '').toLowerCase().endsWith('.csv')) {
         errMsg = 'CSV files are not supported. Please save your file as .xlsx (Excel Workbook) format.';
       } else if (err.message && err.message.includes('corrupted')) {
@@ -303,6 +328,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
     setFile(null);
     setParsedSheets(null);
     setError('');
+    setLastRawError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -310,8 +336,10 @@ export default function ExcelUploader({ onUploadSuccess }) {
     if (!parsedSheets || parsedSheets.length === 0) return;
     setLoading(true);
     setError('');
+    setLastRawError(null);
     setProgress(`Importing ${parsedSheets.length} section(s) to Supabase…`);
     addToast('info', 'Starting import...');
+    logEvent(`Starting database import for ${parsedSheets.length} sections...`);
 
     try {
       const summary = await importParsedWorkbook(
@@ -319,6 +347,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
         selectedSubjectId || null,
         adminProfile?.id || null
       );
+      logEvent('Import completed successfully!');
       setResults(summary);
       setProgress('');
       setFile(null);
@@ -328,6 +357,8 @@ export default function ExcelUploader({ onUploadSuccess }) {
       onUploadSuccess?.();
     } catch (err) {
       const errorMessage = err.message || 'Upload failed. Please try again.';
+      logEvent(`Import error: ${errorMessage}`);
+      setLastRawError(err);
       setError(errorMessage);
       addToast('error', 'Import failed: ' + errorMessage);
       setProgress('');
@@ -415,12 +446,54 @@ export default function ExcelUploader({ onUploadSuccess }) {
           </div>
         </div>
 
+        {/* Mobile Helper & Troubleshooter Toolbar */}
+        {!parsedSheets && !results && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              padding: '10px 14px',
+              marginBottom: '12px',
+              borderRadius: '10px',
+              background: 'var(--color-surface, #ffffff)',
+              border: '1px solid var(--color-border, #e2e8f0)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: 'var(--color-text-muted, #64748b)' }}>
+              <span>📱</span>
+              <span>Mobile / Tablet / Brave user? Use direct picker or diagnostics if upload is blocked.</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ padding: '6px 12px', fontSize: '0.82rem', minHeight: '36px' }}
+              >
+                📁 Pick File from Device
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowDiagnosticsModal(true)}
+                style={{ padding: '6px 12px', fontSize: '0.82rem', minHeight: '36px' }}
+              >
+                🛠️ Error Checker & Diagnostics
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Drop zone - shown when no preview active */}
         {!parsedSheets && !results && (
           <div
             className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
+            onClick={() => fileInputRef.current?.click()}
             style={{ position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
           >
             <input
@@ -429,7 +502,7 @@ export default function ExcelUploader({ onUploadSuccess }) {
               type="file"
               accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream,application/zip,application/x-zip-compressed,*/*"
               onChange={handleFileChange}
-              onClick={(e) => { e.target.value = null; }}
+              onClick={(e) => { e.stopPropagation(); e.target.value = null; }}
               style={{
                 position: 'absolute',
                 top: 0,
@@ -482,11 +555,41 @@ export default function ExcelUploader({ onUploadSuccess }) {
         )}
 
         {error && (
-          <div className="alert alert-error mt-4" role="alert">
-            <span>⚠️</span>
-            <span>{error}</span>
+          <div className="alert alert-error mt-4" role="alert" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>⚠️</span>
+              <span style={{ fontWeight: 600 }}>{error}</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                onClick={() => setShowDiagnosticsModal(true)}
+                style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+              >
+                🔍 View Diagnostics & Detailed Logs
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+              >
+                🔄 Try Selecting File Again
+              </button>
+            </div>
           </div>
         )}
+
+        {/* Upload Diagnostics & Mobile Helper Modal */}
+        <UploadDiagnosticsModal
+          isOpen={showDiagnosticsModal}
+          onClose={() => setShowDiagnosticsModal(false)}
+          currentFile={file}
+          lastError={lastRawError || error}
+          logs={uploadLogs}
+          onFileSelect={(f) => processFile(f)}
+        />
 
         {/* Editable Preview — replaces the old read-only FilePreview */}
         {parsedSheets && !results && (
