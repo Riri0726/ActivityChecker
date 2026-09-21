@@ -187,22 +187,28 @@ export async function parseWorkbook(file) {
         students.push({ surname, firstName, studentNo, accessKey });
 
         const studentScores = [];
+        const MISSING_KEYWORDS = ['missing', 'n/a', 'na', '-', '--', 'none', 'absent', 'inc', 'inc.', 'null', 'undefined'];
+
         for (const act of activities) {
           const cellVal = extractCellValue(row[act.colIndex]);
-          const isBlank = cellVal === null || cellVal === undefined || String(cellVal).trim() === '';
-          const numVal  = isBlank ? null : parseFloat(String(cellVal));
+          const rawStr = cellVal !== null && cellVal !== undefined ? String(cellVal).trim() : '';
+          const isExplicitlyMissing = MISSING_KEYWORDS.includes(rawStr.toLowerCase());
+          const isBlank = rawStr === '' || isExplicitlyMissing;
+          const numVal  = isBlank ? null : parseFloat(rawStr);
           const isNonNumeric = !isBlank && isNaN(numVal);
+          const parsedScore = isBlank || isNaN(numVal) ? null : numVal;
+          const status = parsedScore === null ? 'missing' : 'done';
 
           if (isNonNumeric) invalidScoreCount++;
-          if (isBlank) missingScoreCount++;
+          if (status === 'missing') missingScoreCount++;
 
           studentScores.push({
             activityTitle: act.title,
-            score:  isBlank ? null : (isNaN(numVal) ? null : numVal),
-            status: isBlank ? 'missing' : 'done',
-            isBlank,
+            score: parsedScore,
+            status: status,
+            isBlank: isBlank || parsedScore === null,
             isNonNumeric,
-            rawValue: isBlank ? '' : String(cellVal),
+            rawValue: rawStr,
           });
         }
         scores.push({ accessKey, studentScores });

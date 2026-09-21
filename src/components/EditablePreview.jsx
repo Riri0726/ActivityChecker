@@ -46,16 +46,21 @@ export default function EditablePreview({ parsedSheets, onConfirm, onCancel, imp
     }
     const studentScores = [...(updatedScores[studentIdx].studentScores || [])];
 
-    const isBlank = value === '' || value === null || value === undefined;
-    const numVal = isBlank ? null : parseFloat(value);
+    const MISSING_KEYWORDS = ['missing', 'n/a', 'na', '-', '--', 'none', 'absent', 'inc', 'inc.', 'null', 'undefined'];
+    const rawStr = value !== null && value !== undefined ? String(value).trim() : '';
+    const isExplicitlyMissing = MISSING_KEYWORDS.includes(rawStr.toLowerCase());
+    const isBlank = rawStr === '' || isExplicitlyMissing;
+    const numVal = isBlank ? null : parseFloat(rawStr);
+    const parsedScore = isBlank || isNaN(numVal) ? null : numVal;
+    const status = parsedScore === null ? 'missing' : 'done';
 
     studentScores[activityIdx] = {
       ...studentScores[activityIdx],
       activityTitle: activities[activityIdx]?.title,
-      score: isBlank ? null : (isNaN(numVal) ? null : numVal),
-      status: isBlank ? 'missing' : 'done',
-      isBlank,
-      rawValue: isBlank ? '' : String(value),
+      score: parsedScore,
+      status: status,
+      isBlank: isBlank || parsedScore === null,
+      rawValue: rawStr,
     };
 
     updatedScores[studentIdx] = { ...updatedScores[studentIdx], studentScores };

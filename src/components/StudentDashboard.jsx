@@ -149,8 +149,8 @@ export default function StudentDashboard({
                     const sc = getScore(act.id);
                     const appeal = getAppeal(act.id);
                     const request = getRequest(act.id);
-                    const isMissing = !sc || sc.status === 'missing';
-                    const pct = sc && !isMissing
+                    const isMissing = !sc || sc.status === 'missing' || sc.score === null || sc.score === undefined;
+                    const pct = sc && !isMissing && typeof sc.score === 'number'
                       ? calcPercentage(sc.score, act.max_score)
                       : null;
 

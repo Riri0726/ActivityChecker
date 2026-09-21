@@ -478,9 +478,12 @@ export async function upsertScore(studentId, activityId, score, status) {
 }
 
 export async function updateScoreInline(scoreId, newScore) {
-  const isBlank = newScore === null || newScore === undefined || newScore === '';
-  const score = isBlank ? null : parseFloat(newScore);
-  const status = isBlank ? 'missing' : 'done';
+  const MISSING_KEYWORDS = ['missing', 'n/a', 'na', '-', '--', 'none', 'absent', 'inc', 'inc.', 'null', 'undefined'];
+  const rawStr = newScore !== null && newScore !== undefined ? String(newScore).trim() : '';
+  const isBlank = rawStr === '' || MISSING_KEYWORDS.includes(rawStr.toLowerCase());
+  const numVal = isBlank ? null : parseFloat(rawStr);
+  const score = isBlank || isNaN(numVal) ? null : numVal;
+  const status = score === null ? 'missing' : 'done';
 
   const { error } = await supabase
     .from('scores')

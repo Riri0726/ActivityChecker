@@ -124,13 +124,15 @@ export function AuthProvider({ children }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) {
-        loadAdminProfile(session.user.id, session.user.email);
-      } else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      setSession(newSession);
+      if (event === 'SIGNED_OUT') {
         setAdminProfile(null);
         setSubjects([]);
+      } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        if (newSession?.user) {
+          loadAdminProfile(newSession.user.id, newSession.user.email);
+        }
       }
     });
 

@@ -106,8 +106,11 @@ await runAsyncTest('Excel Parser: Parses sections, activities [MaxScore], and sc
   // Row 2: Dela Cruz - 45 on Quiz 1, 90 on Quiz 2, 0 on Activity 1
   ws.addRow(['DELA CRUZ', 'JUAN', '2023-00002', 45, 90, 0]);
 
-  // Row 3: Santos - missing all scores
+  // Row 3: Santos - missing all scores (empty/null)
   ws.addRow(['SANTOS', 'MARIA', '2023-00003', null, undefined, '']);
+
+  // Row 4: Reyes - explicit text entries: "missing", "N/A", "-"
+  ws.addRow(['REYES', 'CARLO', '2023-00004', 'missing', 'N/A', '-']);
 
   const buffer = await wb.xlsx.writeBuffer();
   const sheets = await parseWorkbook(buffer);
@@ -126,7 +129,7 @@ await runAsyncTest('Excel Parser: Parses sections, activities [MaxScore], and sc
   assert.strictEqual(sheet.activities[2].maxScore, 30);
 
   // Verify students parsed
-  assert.strictEqual(sheet.students.length, 3);
+  assert.strictEqual(sheet.students.length, 4);
 
   // Student 1 (Casuncad)
   const casuncad = sheet.students[0];
@@ -165,6 +168,20 @@ await runAsyncTest('Excel Parser: Parses sections, activities [MaxScore], and sc
   const santosQ1 = santosScores.find(s => s.activityTitle === 'Quiz 1');
   assert.strictEqual(santosQ1.status, 'missing');
   assert.strictEqual(santosQ1.score, null);
+
+  // Student 4 (Reyes) - text "missing", "N/A", "-"
+  const reyes = sheet.students[3];
+  const reyesScores = sheet.scores.find(s => s.accessKey === reyes.accessKey)?.studentScores || [];
+  const rQ1 = reyesScores.find(s => s.activityTitle === 'Quiz 1');
+  const rQ2 = reyesScores.find(s => s.activityTitle === 'Quiz 2');
+  const rAct1 = reyesScores.find(s => s.activityTitle === 'Activity 1');
+
+  assert.strictEqual(rQ1.status, 'missing', 'Cell with text "missing" MUST have status "missing"');
+  assert.strictEqual(rQ1.score, null);
+  assert.strictEqual(rQ2.status, 'missing', 'Cell with text "N/A" MUST have status "missing"');
+  assert.strictEqual(rQ2.score, null);
+  assert.strictEqual(rAct1.status, 'missing', 'Cell with text "-" MUST have status "missing"');
+  assert.strictEqual(rAct1.score, null);
 });
 
 // -------------------------------------------------------------

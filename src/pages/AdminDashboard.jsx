@@ -18,8 +18,16 @@ export default function AdminDashboard() {
     selectedSubjectId, setSelectedSubjectId, refreshAdmin,
     effectiveAdminId, viewAsAdminId, setViewAsAdminId, allAdmins,
   } = useAuth();
-  const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('upload');
+  const VALID_TABS = ['upload', 'gradebook', 'appeals', 'requests', 'makeups', 'subjects', 'teachers'];
+
+  const [activeTab, setActiveTab] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (VALID_TABS.includes(hash)) return hash;
+    const stored = localStorage.getItem('activity_tracker_admin_tab');
+    if (VALID_TABS.includes(stored)) return stored;
+    return 'upload';
+  });
+
   const [badges, setBadges] = useState({ pendingAppeals: 0, pendingRequests: 0 });
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -48,6 +56,17 @@ export default function AdminDashboard() {
     }
   }, [effectiveAdminId]);
 
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (VALID_TABS.includes(hash)) {
+        setActiveTab(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/admin');
@@ -55,6 +74,8 @@ export default function AdminDashboard() {
 
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
+    localStorage.setItem('activity_tracker_admin_tab', tabId);
+    window.location.hash = tabId;
     setSidebarOpen(false);
     if (['appeals', 'requests'].includes(tabId)) {
       loadBadges();
