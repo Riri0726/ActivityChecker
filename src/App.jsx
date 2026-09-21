@@ -1,5 +1,5 @@
 import React, { Component } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { DarkModeProvider } from './context/DarkModeContext.jsx';
 import StudentLookup from './pages/StudentLookup.jsx';
@@ -79,28 +79,50 @@ function ProtectedRoute({ children }) {
   return session ? children : <Navigate to="/admin" replace />;
 }
 
+function AuthRedirectHandler() {
+  const { session } = useAuth();
+  const navigate = useNavigate();
+
+  React.useEffect(() => {
+    // Detect incoming Supabase auth callback hash (e.g. from signup confirmation or invite email)
+    const hash = window.location.hash || '';
+    if (hash.includes('access_token=') || hash.includes('type=signup') || hash.includes('type=recovery') || hash.includes('type=invite')) {
+      if (session) {
+        // Clean up hash from URL bar
+        window.history.replaceState(null, '', window.location.pathname);
+        navigate('/admin/dashboard', { replace: true });
+      }
+    }
+  }, [session, navigate]);
+
+  return null;
+}
+
 function AppRoutes() {
   return (
-    <Routes>
-      {/* Student lookup (public) */}
-      <Route path="/" element={<StudentLookup />} />
+    <>
+      <AuthRedirectHandler />
+      <Routes>
+        {/* Student lookup (public) */}
+        <Route path="/" element={<StudentLookup />} />
 
-      {/* Admin login */}
-      <Route path="/admin" element={<AdminLogin />} />
+        {/* Admin login */}
+        <Route path="/admin" element={<AdminLogin />} />
 
-      {/* Admin dashboard (protected) */}
-      <Route
-        path="/admin/dashboard"
-        element={
-          <ProtectedRoute>
-            <AdminDashboard />
-          </ProtectedRoute>
-        }
-      />
+        {/* Admin dashboard (protected) */}
+        <Route
+          path="/admin/dashboard"
+          element={
+            <ProtectedRoute>
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
 
-      {/* Catch-all */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
 

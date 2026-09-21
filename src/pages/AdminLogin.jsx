@@ -1,15 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import DarkModeToggle from '../components/DarkModeToggle.jsx';
 import './AdminLogin.css';
 
 export default function AdminLogin() {
-  const { signIn } = useAuth();
+  const { session, signIn } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Auto-redirect if already signed in or confirmed via email
+  useEffect(() => {
+    if (session) {
+      navigate('/admin/dashboard', { replace: true });
+    }
+  }, [session, navigate]);
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
