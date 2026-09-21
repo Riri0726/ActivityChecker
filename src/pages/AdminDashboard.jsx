@@ -294,13 +294,29 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {activeTab === 'upload' && <ExcelUploader onUploadSuccess={loadBadges} />}
-        {activeTab === 'gradebook' && <Gradebook />}
-        {activeTab === 'appeals' && <AppealsManager onUpdate={loadBadges} />}
-        {activeTab === 'requests' && <RequestsManager onUpdate={loadBadges} />}
-        {activeTab === 'makeups' && <MakeupTaskManager />}
-        {activeTab === 'subjects' && <SubjectManager />}
-        {activeTab === 'teachers' && isSuperAdmin && <TeacherManager />}
+        <div style={{ display: activeTab === 'upload' ? 'block' : 'none' }}>
+          <ExcelUploader onUploadSuccess={loadBadges} />
+        </div>
+        <div style={{ display: activeTab === 'gradebook' ? 'block' : 'none' }}>
+          <Gradebook />
+        </div>
+        <div style={{ display: activeTab === 'appeals' ? 'block' : 'none' }}>
+          <AppealsManager onUpdate={loadBadges} />
+        </div>
+        <div style={{ display: activeTab === 'requests' ? 'block' : 'none' }}>
+          <RequestsManager onUpdate={loadBadges} />
+        </div>
+        <div style={{ display: activeTab === 'makeups' ? 'block' : 'none' }}>
+          <MakeupTaskManager />
+        </div>
+        <div style={{ display: activeTab === 'subjects' ? 'block' : 'none' }}>
+          <SubjectManager />
+        </div>
+        {isSuperAdmin && (
+          <div style={{ display: activeTab === 'teachers' ? 'block' : 'none' }}>
+            <TeacherManager />
+          </div>
+        )}
       </main>
     </div>
   );
