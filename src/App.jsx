@@ -62,9 +62,10 @@ class ErrorBoundary extends Component {
 
 // Protected route — redirects to /admin if not authenticated
 function ProtectedRoute({ children }) {
-  const { session, isLoading } = useAuth();
+  const { session } = useAuth();
 
-  if (isLoading) {
+  // Only block and show full-page loading spinner on initial auth check
+  if (session === undefined) {
     return (
       <div className="page-center">
         <div className="loading-center">
