@@ -285,14 +285,6 @@ export default function ExcelUploader({ onUploadSuccess }) {
     }
   };
 
-  const handleBrowseClick = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
   const handleCancelPreview = () => {
     setFile(null);
     setParsedSheets(null);

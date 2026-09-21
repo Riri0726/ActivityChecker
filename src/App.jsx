@@ -36,7 +36,7 @@ class ErrorBoundary extends Component {
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
               <button 
-                onClick={() => { window.location.href = window.location.href; }}
+                onClick={() => { window.location.reload(); }}
                 style={{ padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
               >
                 Reload Page

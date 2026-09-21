@@ -7,6 +7,7 @@ const STATUS_OPTIONS = ['pending', 'reviewed', 'resolved', 'rejected'];
 export default function AppealsManager({ onUpdate }) {
   const { effectiveAdminId } = useAuth();
   const [appeals, setAppeals] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState(
     () => localStorage.getItem('activity_tracker_appeals_filter') || 'pending'
   );
