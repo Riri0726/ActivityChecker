@@ -173,29 +173,33 @@ export default function ExcelUploader({ onUploadSuccess }) {
   };
 
   /**
-   * Validate file — supports broader MIME types for mobile browsers
+   * Validate file — supports broader MIME types and Android/tablet file providers
    */
   const isValidExcelFile = (f) => {
     if (!f) return false;
     const name = (f.name || '').toLowerCase();
-    const validExtensions = ['.xlsx'];
+    
+    // Valid xlsx extension
+    if (name.endsWith('.xlsx')) return true;
+
+    // Explicitly reject non-spreadsheet formats
+    const invalidExts = ['.csv', '.xls', '.pdf', '.txt', '.doc', '.docx', '.png', '.jpg', '.jpeg'];
+    if (invalidExts.some((ext) => name.endsWith(ext))) return false;
+
+    // Standard & mobile MIME types
     const validMimes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
-      'application/octet-stream', // Some mobile browsers send this
-      'application/zip', // .xlsx is technically a zip file
-      '', // Some mobile browsers don't set MIME
+      'application/octet-stream',
+      'application/zip',
+      'application/x-zip-compressed',
+      'application/wps-office.xlsx',
+      '',
     ];
 
-    const hasValidExt = validExtensions.some((ext) => name.endsWith(ext));
-    const hasValidMime = validMimes.includes(f.type || '');
+    if (validMimes.includes(f.type || '')) return true;
 
-    // Accept if extension is valid (even if MIME is unexpected)
-    if (hasValidExt) return true;
-    // Accept if MIME matches and no extension available (mobile edge case)
-    if (hasValidMime && !name) return true;
-
-    return false;
+    return true; // Attempt to parse if not an explicitly blocked extension
   };
 
   const getFileTypeWarning = (f) => {
@@ -411,34 +415,29 @@ export default function ExcelUploader({ onUploadSuccess }) {
             className={`drop-zone ${file ? 'drop-zone--has-file' : ''}`}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
-            style={{ display: 'block', cursor: 'pointer' }}
-            onClick={handleBrowseClick}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleBrowseClick(e); }}
-            role="button"
-            tabIndex={0}
-            aria-label="Upload Excel file"
+            style={{ position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
           >
             <input
               id="excel-file-input"
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream,application/zip,application/x-zip-compressed,*/*"
               onChange={handleFileChange}
-              onClick={(e) => { e.stopPropagation(); e.target.value = null; }}
+              onClick={(e) => { e.target.value = null; }}
               style={{
                 position: 'absolute',
-                width: '1px',
-                height: '1px',
-                padding: 0,
-                margin: '-1px',
-                overflow: 'hidden',
-                clip: 'rect(0,0,0,0)',
-                whiteSpace: 'nowrap',
-                border: 0,
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                opacity: 0,
+                cursor: 'pointer',
+                zIndex: 10,
               }}
+              aria-label="Upload Excel file"
             />
             {file ? (
-              <div className="drop-zone__file">
+              <div className="drop-zone__file" style={{ pointerEvents: 'none' }}>
                 <span aria-hidden="true">📄</span>
                 <div>
                   <div className="drop-zone__filename">{file.name}</div>
@@ -448,17 +447,17 @@ export default function ExcelUploader({ onUploadSuccess }) {
                 </div>
               </div>
             ) : (
-              <div className="drop-zone__prompt">
+              <div className="drop-zone__prompt" style={{ pointerEvents: 'none' }}>
                 <span className="drop-zone__icon" aria-hidden="true">📂</span>
                 <div>
                   <div style={{ fontWeight: 600, marginBottom: 4, fontSize: '1.05rem' }}>Drop your Excel file here</div>
                   <div className="text-muted" style={{ fontSize: '0.85rem', marginBottom: 12 }}>
-                    or tap below to browse from your device (.xlsx only)
+                    or tap anywhere in this box to browse from your device (.xlsx only)
                   </div>
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
-                    style={{ pointerEvents: 'none', minHeight: '44px' }}
+                    style={{ minHeight: '44px' }}
                     tabIndex={-1}
                   >
                     📁 Select Excel File
