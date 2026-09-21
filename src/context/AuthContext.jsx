@@ -193,6 +193,7 @@ export function AuthProvider({ children }) {
         setSelectedSubjectId: handleSelectSubject,
         refreshAdmin,
         isLoading: session === undefined || isLoadingProfile,
+        loading: session === undefined || isLoadingProfile,
         signIn,
         signOut,
         // Multi-teacher isolation

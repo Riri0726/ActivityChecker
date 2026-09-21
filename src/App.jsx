@@ -34,18 +34,21 @@ class ErrorBoundary extends Component {
             <p style={{ color: '#ef4444', marginBottom: '1.5rem', fontSize: '0.875rem' }}>
               {this.state.error && this.state.error.toString()}
             </p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
               <button 
-                onClick={() => window.location.reload()}
-                style={{ padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                onClick={() => { window.location.href = window.location.href; }}
+                style={{ padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
               >
                 Reload Page
               </button>
               <button 
-                onClick={this.handleReset}
-                style={{ padding: '0.5rem 1rem', backgroundColor: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                onClick={() => {
+                  this.setState({ hasError: false, error: null });
+                  window.location.href = '/';
+                }}
+                style={{ padding: '0.5rem 1rem', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
               >
-                Try Again
+                Return to Home
               </button>
             </div>
           </div>
